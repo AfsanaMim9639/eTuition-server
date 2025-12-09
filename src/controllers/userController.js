@@ -1,127 +1,43 @@
 const User = require('../models/User');
-const Tuition = require('../models/Tuition');
 
-// Get user profile
-exports.getUserProfile = async (req, res) => {
-  try {
-    const user = await User.findById(req.params.userId).select('-password');
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    // If tutor, get additional stats
-    let stats = {};
-    if (user.role === 'tutor') {
-      const ongoingTuitions = await Tuition.countDocuments({
-        approvedTutor: user._id,
-        status: 'ongoing'
-      });
-
-      const completedTuitions = await Tuition.countDocuments({
-        approvedTutor: user._id,
-        status: 'completed'
-      });
-
-      stats = {
-        ongoingTuitions,
-        completedTuitions,
-        totalEarnings: user.totalEarnings
-      };
-    }
-
-    res.json({
-      success: true,
-      user,
-      stats
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch user profile'
-    });
-  }
-};
-
-// Update user profile
-exports.updateUserProfile = async (req, res) => {
-  try {
-    const {
-      name,
-      phone,
-      profileImage,
-      education,
-      subjects,
-      experience,
-      hourlyRate
-    } = req.body;
-
-    const updateData = {
-      name,
-      phone,
-      profileImage
-    };
-
-    // Add tutor-specific fields if user is tutor
-    const user = await User.findById(req.user.userId);
-    if (user.role === 'tutor') {
-      if (education) updateData.education = education;
-      if (subjects) updateData.subjects = subjects;
-      if (experience) updateData.experience = experience;
-      if (hourlyRate) updateData.hourlyRate = hourlyRate;
-    }
-
-    const updatedUser = await User.findByIdAndUpdate(
-      req.user.userId,
-      updateData,
-      { new: true, runValidators: true }
-    ).select('-password');
-
-    res.json({
-      success: true,
-      message: 'Profile updated successfully',
-      user: updatedUser
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Failed to update profile'
-    });
-  }
-};
-
-// Get all tutors for listing
+// Get all tutors with filters and pagination
 exports.getAllTutors = async (req, res) => {
   try {
     const { 
+      page = 1, 
+      limit = 10, 
       search, 
-      subject, 
-      minRate, 
-      maxRate,
-      page = 1,
-      limit = 12
+      subject,
+      location,
+      minRating,
+      minExperience
     } = req.query;
 
-    const query = { role: 'tutor', status: 'active' };
+    const query = { role: 'tutor', active: true };  // Changed from status to active
 
+    // Search by name
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { education: { $regex: search, $options: 'i' } }
-      ];
+      query.name = { $regex: search, $options: 'i' };
     }
 
+    // Filter by subject
     if (subject) {
-      query.subjects = subject;
+      query.subjects = { $in: [subject] };
     }
 
-    if (minRate || maxRate) {
-      query.hourlyRate = {};
-      if (minRate) query.hourlyRate.$gte = Number(minRate);
-      if (maxRate) query.hourlyRate.$lte = Number(maxRate);
+    // Filter by location
+    if (location) {
+      query.location = { $regex: location, $options: 'i' };
+    }
+
+    // Filter by minimum rating
+    if (minRating) {
+      query.rating = { $gte: Number(minRating) };
+    }
+
+    // Filter by minimum experience
+    if (minExperience) {
+      query.experience = { $gte: Number(minExperience) };
     }
 
     const skip = (page - 1) * limit;
@@ -140,10 +56,12 @@ exports.getAllTutors = async (req, res) => {
       pagination: {
         currentPage: Number(page),
         totalPages: Math.ceil(total / limit),
-        totalItems: total
+        totalItems: total,
+        itemsPerPage: Number(limit)
       }
     });
   } catch (error) {
+    console.error('Get tutors error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch tutors'
@@ -154,7 +72,10 @@ exports.getAllTutors = async (req, res) => {
 // Get latest tutors for home page
 exports.getLatestTutors = async (req, res) => {
   try {
-    const tutors = await User.find({ role: 'tutor', status: 'active' })
+    const tutors = await User.find({ 
+      role: 'tutor', 
+      active: true  // Changed from status: 'active' to active: true
+    })
       .select('-password')
       .sort({ createdAt: -1 })
       .limit(6);
@@ -164,9 +85,73 @@ exports.getLatestTutors = async (req, res) => {
       tutors
     });
   } catch (error) {
+    console.error('Get latest tutors error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch latest tutors'
+    });
+  }
+};
+
+// Get user profile by ID
+exports.getUserProfile = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.userId).select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      user
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user profile'
+    });
+  }
+};
+
+// Update user profile
+exports.updateUserProfile = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const updates = req.body;
+
+    // Don't allow updating these fields
+    delete updates.email;
+    delete updates.role;
+    delete updates.password;
+    delete updates.totalEarnings;
+    delete updates.rating;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      updates,
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      user
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to update profile'
     });
   }
 };

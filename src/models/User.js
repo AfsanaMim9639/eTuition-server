@@ -38,28 +38,38 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  // Tutor specific fields
-  education: {
-    type: String,
-    required: function() {
-      return this.role === 'tutor';
-    }
-  },
+  // Tutor specific fields - matching your MongoDB collection
   subjects: [{
     type: String
   }],
   experience: {
-    type: String
-  },
-  hourlyRate: {
-    type: Number,
+    type: Number,  // Changed from String to Number to match collection
     default: 0
+  },
+  location: {
+    type: String,  // Added location field from collection
+    trim: true
   },
   rating: {
     type: Number,
     default: 0,
     min: 0,
     max: 5
+  },
+  active: {  // Added active field from collection
+    type: Boolean,
+    default: true
+  },
+  // Additional tutor fields (not in your sample but might be needed)
+  education: {
+    type: String,
+    required: function() {
+      return this.role === 'tutor';
+    }
+  },
+  hourlyRate: {
+    type: Number,
+    default: 0
   },
   totalEarnings: {
     type: Number,

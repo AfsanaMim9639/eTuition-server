@@ -1,30 +1,6 @@
 const Tuition = require('../models/Tuition');
 const Application = require('../models/Application');
 
-// Create new tuition
-exports.createTuition = async (req, res) => {
-  try {
-    const tuitionData = {
-      ...req.body,
-      postedBy: req.user.userId
-    };
-
-    const tuition = await Tuition.create(tuitionData);
-
-    res.status(201).json({
-      success: true,
-      message: 'Tuition posted successfully',
-      tuition
-    });
-  } catch (error) {
-    console.error('Create tuition error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Failed to create tuition'
-    });
-  }
-};
-
 // Get all tuitions with filters and pagination
 exports.getAllTuitions = async (req, res) => {
   try {
@@ -33,11 +9,11 @@ exports.getAllTuitions = async (req, res) => {
       limit = 10, 
       search, 
       subject, 
-      category, 
-      medium,
+      tutoring_type, 
+      preferred_medium,
       minSalary,
       maxSalary,
-      status = 'approved'
+      status = 'open'
     } = req.query;
 
     const query = { status };
@@ -56,14 +32,14 @@ exports.getAllTuitions = async (req, res) => {
       query.subject = subject;
     }
 
-    // Filter by category
-    if (category) {
-      query.category = category;
+    // Filter by tutoring type
+    if (tutoring_type) {
+      query.tutoring_type = tutoring_type;
     }
 
     // Filter by medium
-    if (medium) {
-      query.medium = medium;
+    if (preferred_medium) {
+      query.preferred_medium = preferred_medium;
     }
 
     // Filter by salary range
@@ -76,8 +52,7 @@ exports.getAllTuitions = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const tuitions = await Tuition.find(query)
-      .populate('postedBy', 'name email phone profileImage')
-      .sort({ createdAt: -1 })
+      .sort({ posted_date: -1, createdAt: -1 })
       .limit(Number(limit))
       .skip(skip);
 
@@ -102,12 +77,30 @@ exports.getAllTuitions = async (req, res) => {
   }
 };
 
+// Get latest tuitions for home page
+exports.getLatestTuitions = async (req, res) => {
+  try {
+    const tuitions = await Tuition.find({ status: 'open' })
+      .sort({ posted_date: -1, createdAt: -1 })
+      .limit(6);
+
+    res.json({
+      success: true,
+      tuitions
+    });
+  } catch (error) {
+    console.error('Get latest tuitions error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch latest tuitions'
+    });
+  }
+};
+
 // Get tuition by ID
 exports.getTuitionById = async (req, res) => {
   try {
-    const tuition = await Tuition.findById(req.params.id)
-      .populate('postedBy', 'name email phone profileImage')
-      .populate('approvedTutor', 'name email phone education subjects rating');
+    const tuition = await Tuition.findById(req.params.id);
 
     if (!tuition) {
       return res.status(404).json({
@@ -117,7 +110,7 @@ exports.getTuitionById = async (req, res) => {
     }
 
     // Increment view count
-    tuition.viewCount += 1;
+    tuition.views = (tuition.views || 0) + 1;
     await tuition.save();
 
     res.json({
@@ -125,9 +118,37 @@ exports.getTuitionById = async (req, res) => {
       tuition
     });
   } catch (error) {
+    console.error('Get tuition by ID error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch tuition details'
+    });
+  }
+};
+
+// Create new tuition
+exports.createTuition = async (req, res) => {
+  try {
+    const tuitionData = {
+      ...req.body,
+      postedBy: req.user?.userId,
+      posted_date: new Date().toISOString().split('T')[0],
+      status: 'open',
+      views: 0
+    };
+
+    const tuition = await Tuition.create(tuitionData);
+
+    res.status(201).json({
+      success: true,
+      message: 'Tuition posted successfully',
+      tuition
+    });
+  } catch (error) {
+    console.error('Create tuition error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to create tuition'
     });
   }
 };
@@ -136,7 +157,6 @@ exports.getTuitionById = async (req, res) => {
 exports.getMyTuitions = async (req, res) => {
   try {
     const tuitions = await Tuition.find({ postedBy: req.user.userId })
-      .populate('approvedTutor', 'name email phone')
       .sort({ createdAt: -1 });
 
     res.json({
@@ -163,19 +183,11 @@ exports.updateTuition = async (req, res) => {
       });
     }
 
-    // Check if user is the owner
-    if (tuition.postedBy.toString() !== req.user.userId) {
+    // Check if user is the owner (if postedBy field exists)
+    if (tuition.postedBy && tuition.postedBy.toString() !== req.user.userId) {
       return res.status(403).json({
         success: false,
         message: 'You are not authorized to update this tuition'
-      });
-    }
-
-    // Don't allow updates if tuition is ongoing or completed
-    if (['ongoing', 'completed'].includes(tuition.status)) {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot update ${tuition.status} tuition`
       });
     }
 
@@ -207,24 +219,13 @@ exports.deleteTuition = async (req, res) => {
       });
     }
 
-    // Check if user is the owner
-    if (tuition.postedBy.toString() !== req.user.userId) {
+    // Check if user is the owner (if postedBy field exists)
+    if (tuition.postedBy && tuition.postedBy.toString() !== req.user.userId) {
       return res.status(403).json({
         success: false,
         message: 'You are not authorized to delete this tuition'
       });
     }
-
-    // Don't allow deletion if tuition is ongoing
-    if (tuition.status === 'ongoing') {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot delete ongoing tuition'
-      });
-    }
-
-    // Delete associated applications
-    await Application.deleteMany({ tuition: tuition._id });
 
     await tuition.deleteOne();
 
@@ -236,26 +237,6 @@ exports.deleteTuition = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete tuition'
-    });
-  }
-};
-
-// Get latest tuitions for home page
-exports.getLatestTuitions = async (req, res) => {
-  try {
-    const tuitions = await Tuition.find({ status: 'approved' })
-      .populate('postedBy', 'name profileImage')
-      .sort({ createdAt: -1 })
-      .limit(6);
-
-    res.json({
-      success: true,
-      tuitions
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch latest tuitions'
     });
   }
 };
