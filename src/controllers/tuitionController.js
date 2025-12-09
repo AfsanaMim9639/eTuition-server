@@ -52,7 +52,8 @@ exports.getAllTuitions = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const tuitions = await Tuition.find(query)
-      .sort({ posted_date: -1, createdAt: -1 })
+      .populate('studentId', 'name phone location') // ✅ Added populate
+      .sort({ postedAt: -1, createdAt: -1 }) // ✅ Changed from posted_date
       .limit(Number(limit))
       .skip(skip);
 
@@ -81,7 +82,8 @@ exports.getAllTuitions = async (req, res) => {
 exports.getLatestTuitions = async (req, res) => {
   try {
     const tuitions = await Tuition.find({ status: 'open' })
-      .sort({ posted_date: -1, createdAt: -1 })
+      .populate('studentId', 'name location') // ✅ Added populate
+      .sort({ postedAt: -1, createdAt: -1 }) // ✅ Changed from posted_date
       .limit(6);
 
     res.json({
@@ -100,7 +102,9 @@ exports.getLatestTuitions = async (req, res) => {
 // Get tuition by ID
 exports.getTuitionById = async (req, res) => {
   try {
-    const tuition = await Tuition.findById(req.params.id);
+    const tuition = await Tuition.findById(req.params.id)
+      .populate('studentId', 'name email phone location') // ✅ Added populate
+      .populate('approvedTutor', 'name email phone subjects rating'); // ✅ Added populate
 
     if (!tuition) {
       return res.status(404).json({
@@ -131,8 +135,8 @@ exports.createTuition = async (req, res) => {
   try {
     const tuitionData = {
       ...req.body,
-      postedBy: req.user?.userId,
-      posted_date: new Date().toISOString().split('T')[0],
+      studentId: req.user?.userId, // ✅ Changed from postedBy to studentId
+      postedAt: new Date(), // ✅ Changed from posted_date
       status: 'open',
       views: 0
     };
@@ -156,7 +160,8 @@ exports.createTuition = async (req, res) => {
 // Get tuitions posted by current user
 exports.getMyTuitions = async (req, res) => {
   try {
-    const tuitions = await Tuition.find({ postedBy: req.user.userId })
+    const tuitions = await Tuition.find({ studentId: req.user.userId }) // ✅ Changed from postedBy
+      .populate('approvedTutor', 'name phone subjects') // ✅ Added populate
       .sort({ createdAt: -1 });
 
     res.json({
@@ -183,8 +188,8 @@ exports.updateTuition = async (req, res) => {
       });
     }
 
-    // Check if user is the owner (if postedBy field exists)
-    if (tuition.postedBy && tuition.postedBy.toString() !== req.user.userId) {
+    // Check if user is the owner
+    if (tuition.studentId.toString() !== req.user.userId) { // ✅ Changed from postedBy
       return res.status(403).json({
         success: false,
         message: 'You are not authorized to update this tuition'
@@ -219,8 +224,8 @@ exports.deleteTuition = async (req, res) => {
       });
     }
 
-    // Check if user is the owner (if postedBy field exists)
-    if (tuition.postedBy && tuition.postedBy.toString() !== req.user.userId) {
+    // Check if user is the owner
+    if (tuition.studentId.toString() !== req.user.userId) { // ✅ Changed from postedBy
       return res.status(403).json({
         success: false,
         message: 'You are not authorized to delete this tuition'

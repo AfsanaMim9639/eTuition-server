@@ -29,11 +29,11 @@ exports.createPaymentIntent = async (req, res) => {
       });
     }
 
-    // Check if application is already approved
-    if (application.status === 'approved') {
+    // Check if application is already accepted
+    if (application.status === 'accepted') { // ✅ Changed from 'approved'
       return res.status(400).json({
         success: false,
-        message: 'Application is already approved'
+        message: 'Application is already accepted'
       });
     }
 
@@ -94,26 +94,36 @@ exports.confirmPayment = async (req, res) => {
       });
     }
 
+    // Calculate platform fee and tutor receives
+    const platformFee = amount * 0.10; // 10% platform fee
+    const tutorReceives = amount - platformFee;
+
     // Create payment record
     const payment = await Payment.create({
       tuition: application.tuition._id,
       student: req.user.userId,
       tutor: application.tutor._id,
       amount,
+      platformFee,
+      tutorReceives,
       transactionId: paymentIntentId,
       stripePaymentIntentId: paymentIntentId,
+      paymentMethod: 'stripe',
       status: 'completed',
+      completedAt: new Date(),
       description: `Payment for tuition: ${application.tuition.title}`
     });
 
     // Update application status
-    application.status = 'approved';
+    application.status = 'accepted'; // ✅ Changed from 'approved' to 'accepted'
+    application.respondedAt = new Date();
     await application.save();
 
     // Update tuition status
     const tuition = await Tuition.findById(application.tuition._id);
     tuition.status = 'ongoing';
     tuition.approvedTutor = application.tutor._id;
+    tuition.closedAt = new Date();
     await tuition.save();
 
     // Reject all other applications for this tuition
@@ -125,13 +135,14 @@ exports.confirmPayment = async (req, res) => {
       },
       { 
         status: 'rejected',
+        respondedAt: new Date(),
         rejectionReason: 'Another tutor has been selected'
       }
     );
 
     // Update tutor's earnings
     await User.findByIdAndUpdate(application.tutor._id, {
-      $inc: { totalEarnings: amount }
+      $inc: { totalEarnings: tutorReceives } // ✅ Use tutorReceives instead of full amount
     });
 
     res.json({
@@ -153,13 +164,19 @@ exports.confirmPayment = async (req, res) => {
 exports.getMyPayments = async (req, res) => {
   try {
     const payments = await Payment.find({ student: req.user.userId })
-      .populate('tuition', 'title subject class')
+      .populate('tuition', 'title subject grade') // ✅ Changed 'class' to 'grade'
       .populate('tutor', 'name email phone')
       .sort({ createdAt: -1 });
 
+    const totalSpent = payments
+      .filter(p => p.status === 'completed')
+      .reduce((sum, payment) => sum + payment.amount, 0);
+
     res.json({
       success: true,
-      payments
+      payments,
+      totalSpent,
+      totalTransactions: payments.length
     });
   } catch (error) {
     res.status(500).json({
@@ -176,16 +193,19 @@ exports.getMyRevenue = async (req, res) => {
       tutor: req.user.userId,
       status: 'completed'
     })
-      .populate('tuition', 'title subject class')
+      .populate('tuition', 'title subject grade') // ✅ Changed 'class' to 'grade'
       .populate('student', 'name email phone')
       .sort({ createdAt: -1 });
 
-    const totalRevenue = payments.reduce((sum, payment) => sum + payment.amount, 0);
+    const totalRevenue = payments.reduce((sum, payment) => sum + payment.tutorReceives, 0); // ✅ Use tutorReceives
+    const platformFees = payments.reduce((sum, payment) => sum + payment.platformFee, 0);
 
     res.json({
       success: true,
       payments,
       totalRevenue,
+      platformFees,
+      grossAmount: totalRevenue + platformFees,
       totalTransactions: payments.length
     });
   } catch (error) {

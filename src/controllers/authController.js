@@ -22,11 +22,18 @@ exports.register = async (req, res) => {
       email, 
       password, 
       role, 
-      phone, 
+      phone,
+      address, // ✅ Added address
+      // Student fields
+      grade,
+      institution,
+      // Tutor fields
       education, 
       subjects,
       experience,
-      location
+      location,
+      bio,
+      hourlyRate
     } = req.body;
 
     console.log('📥 Registration request:', { name, email, role });
@@ -47,24 +54,55 @@ exports.register = async (req, res) => {
       password,
       role: role || 'student',
       phone,
-      active: true  // Set active to true by default
+      address, // ✅ Added
+      active: true,
+      status: 'active' // ✅ Set status to active by default
     };
+
+    // Add student-specific fields
+    if (role === 'student') {
+      if (grade) userData.grade = grade;
+      if (institution) userData.institution = institution;
+    }
 
     // Add tutor-specific fields
     if (role === 'tutor') {
       // Validate required tutor fields
-      if (!education || !subjects || !location) {
+      if (!subjects || subjects.length === 0) {
         return res.status(400).json({
           success: false,
-          message: 'Education, subjects and location are required for tutors'
+          message: 'At least one subject is required for tutors'
         });
       }
 
-      userData.education = education;
-      userData.subjects = Array.isArray(subjects) ? subjects : [];
+      if (!location) {
+        return res.status(400).json({
+          success: false,
+          message: 'Location is required for tutors'
+        });
+      }
+
+      // Handle education - can be string or array
+      if (education) {
+        if (typeof education === 'string') {
+          // If string, convert to single object array
+          userData.education = [{
+            degree: education,
+            institution: '',
+            year: ''
+          }];
+        } else if (Array.isArray(education)) {
+          userData.education = education;
+        }
+      }
+
+      userData.subjects = Array.isArray(subjects) ? subjects : [subjects];
       userData.experience = experience ? Number(experience) : 0;
       userData.location = location;
-      userData.rating = 5.0;  // Default rating for new tutors
+      userData.bio = bio || '';
+      userData.hourlyRate = hourlyRate ? Number(hourlyRate) : 0;
+      userData.rating = 0; // ✅ Start with 0, will increase with reviews
+      userData.totalReviews = 0;
     }
 
     console.log('💾 Creating user with data:', { ...userData, password: '***' });
@@ -80,10 +118,47 @@ exports.register = async (req, res) => {
       success: true,
       message: 'User registered successfully',
       token,
-      user
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        phone: user.phone,
+        profileImage: user.profileImage,
+        // Include role-specific fields
+        ...(user.role === 'student' && {
+          grade: user.grade,
+          institution: user.institution
+        }),
+        ...(user.role === 'tutor' && {
+          subjects: user.subjects,
+          experience: user.experience,
+          location: user.location,
+          rating: user.rating,
+          hourlyRate: user.hourlyRate
+        })
+      }
     });
   } catch (error) {
     console.error('❌ Register error:', error);
+    
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email already exists'
+      });
+    }
+    
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: messages.join(', ')
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: error.message || 'Registration failed'
@@ -98,8 +173,17 @@ exports.login = async (req, res) => {
 
     console.log('📥 Login request for:', email);
 
-    // Find user
-    const user = await User.findOne({ email });
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide email and password'
+      });
+    }
+
+    // Find user (need to include password for comparison)
+    const user = await User.findOne({ email }).select('+password');
+    
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -107,19 +191,27 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Check if account is active
-    if (user.status !== 'active') {
-      return res.status(403).json({
+    // Check if it's a social login account
+    if (user.isSocialLogin) {
+      return res.status(400).json({
         success: false,
-        message: 'Your account has been suspended or blocked'
+        message: 'This account uses social login. Please login with Google/Facebook.'
       });
     }
 
-    // Also check the 'active' field for tutors
-    if (user.active === false) {
+    // Check account status
+    if (user.status !== 'active') {
       return res.status(403).json({
         success: false,
-        message: 'Your account has been deactivated'
+        message: `Your account has been ${user.status}. Please contact support.`
+      });
+    }
+
+    // Check active field for tutors
+    if (user.role === 'tutor' && user.active === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your tutor account has been deactivated'
       });
     }
 
@@ -136,6 +228,9 @@ exports.login = async (req, res) => {
 
     // Generate token
     const token = generateToken(user);
+
+    // Remove password from response
+    user.password = undefined;
 
     res.json({
       success: true,
@@ -159,30 +254,56 @@ exports.socialLogin = async (req, res) => {
 
     console.log('📥 Social login request for:', email);
 
+    // Validate input
+    if (!email || !name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name and email are required'
+      });
+    }
+
     // Check if user exists
     let user = await User.findOne({ email });
 
     if (user) {
-      // Check if account is active
-      if (user.status !== 'active' || user.active === false) {
-        return res.status(403).json({
+      // Check if it's a regular account trying to social login
+      if (!user.isSocialLogin) {
+        return res.status(400).json({
           success: false,
-          message: 'Your account has been suspended or blocked'
+          message: 'An account with this email already exists. Please login with email and password.'
         });
       }
-      console.log('✅ Existing user found:', email);
+
+      // Check account status
+      if (user.status !== 'active') {
+        return res.status(403).json({
+          success: false,
+          message: `Your account has been ${user.status}. Please contact support.`
+        });
+      }
+
+      // Check active field
+      if (user.active === false) {
+        return res.status(403).json({
+          success: false,
+          message: 'Your account has been deactivated'
+        });
+      }
+
+      console.log('✅ Existing social user found:', email);
     } else {
       // Create new user with social login
       console.log('📝 Creating new social login user:', email);
       user = await User.create({
         name,
         email,
-        profileImage,
+        profileImage: profileImage || undefined,
         role: role || 'student',
         isSocialLogin: true,
-        active: true
+        active: true,
+        status: 'active'
       });
-      console.log('✅ New user created:', user._id);
+      console.log('✅ New social user created:', user._id);
     }
 
     // Generate token
@@ -198,7 +319,7 @@ exports.socialLogin = async (req, res) => {
     console.error('❌ Social login error:', error);
     res.status(500).json({
       success: false,
-      message: 'Social login failed'
+      message: error.message || 'Social login failed'
     });
   }
 };
@@ -206,12 +327,20 @@ exports.socialLogin = async (req, res) => {
 // Get current user
 exports.getCurrentUser = async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId);
+    const user = await User.findById(req.user.userId).select('-password');
     
     if (!user) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
+      });
+    }
+
+    // Check if user is still active
+    if (user.status !== 'active' || user.active === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been deactivated'
       });
     }
 
@@ -224,6 +353,87 @@ exports.getCurrentUser = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch user data'
+    });
+  }
+};
+
+// Logout (optional - mainly for clearing client-side token)
+exports.logout = async (req, res) => {
+  try {
+    // In JWT, logout is typically handled client-side by removing the token
+    // But you can add server-side token blacklisting if needed
+    
+    res.json({
+      success: true,
+      message: 'Logged out successfully'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Logout failed'
+    });
+  }
+};
+
+// Change password
+exports.changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide current and new password'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 6 characters'
+      });
+    }
+
+    // Get user with password
+    const user = await User.findById(req.user.userId).select('+password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check if it's a social login account
+    if (user.isSocialLogin) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot change password for social login accounts'
+      });
+    }
+
+    // Verify current password
+    const isPasswordValid = await user.comparePassword(currentPassword);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
+
+    // Update password
+    user.password = newPassword;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+  } catch (error) {
+    console.error('❌ Change password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to change password'
     });
   }
 };

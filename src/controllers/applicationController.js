@@ -5,10 +5,10 @@ const User = require('../models/User');
 // Tutor applies to a tuition
 exports.applyToTuition = async (req, res) => {
   try {
-    const { tuitionId, coverLetter, expectedSalary, availability } = req.body;
+    const { tuitionId, message, proposedRate } = req.body; // ✅ Changed field names
     const tutorId = req.user.userId;
 
-    // Check if tuition exists and is approved
+    // Check if tuition exists and is open
     const tuition = await Tuition.findById(tuitionId);
     if (!tuition) {
       return res.status(404).json({
@@ -17,7 +17,7 @@ exports.applyToTuition = async (req, res) => {
       });
     }
 
-    if (tuition.status !== 'approved') {
+    if (tuition.status !== 'open') { // ✅ Changed from 'approved' to 'open'
       return res.status(400).json({
         success: false,
         message: 'This tuition is not available for applications'
@@ -41,19 +41,15 @@ exports.applyToTuition = async (req, res) => {
     const application = await Application.create({
       tuition: tuitionId,
       tutor: tutorId,
-      student: tuition.postedBy,
-      coverLetter,
-      expectedSalary,
-      availability
+      student: tuition.studentId, // ✅ Changed from postedBy
+      message, // ✅ Changed from coverLetter
+      proposedRate, // ✅ Optional field
+      appliedAt: new Date()
     });
-
-    // Increment application count
-    tuition.applicationCount += 1;
-    await tuition.save();
 
     await application.populate([
       { path: 'tutor', select: 'name email phone education subjects rating profileImage' },
-      { path: 'tuition', select: 'title subject class' }
+      { path: 'tuition', select: 'title subject grade location salary' } // ✅ Changed 'class' to 'grade'
     ]);
 
     res.status(201).json({
@@ -74,7 +70,7 @@ exports.applyToTuition = async (req, res) => {
 exports.getMyApplications = async (req, res) => {
   try {
     const applications = await Application.find({ tutor: req.user.userId })
-      .populate('tuition', 'title subject class location salary status')
+      .populate('tuition', 'title subject grade location salary status') // ✅ Changed 'class' to 'grade'
       .populate('student', 'name email phone')
       .sort({ createdAt: -1 });
 
@@ -104,7 +100,7 @@ exports.getApplicationsForTuition = async (req, res) => {
       });
     }
 
-    if (tuition.postedBy.toString() !== req.user.userId && req.user.role !== 'admin') {
+    if (tuition.studentId.toString() !== req.user.userId && req.user.role !== 'admin') { // ✅ Changed from postedBy
       return res.status(403).json({
         success: false,
         message: 'You are not authorized to view these applications'
@@ -112,7 +108,7 @@ exports.getApplicationsForTuition = async (req, res) => {
     }
 
     const applications = await Application.find({ tuition: tuitionId })
-      .populate('tutor', 'name email phone education subjects rating profileImage experience')
+      .populate('tutor', 'name email phone education subjects rating profileImage experience location') // ✅ Added location
       .sort({ createdAt: -1 });
 
     res.json({
@@ -127,7 +123,7 @@ exports.getApplicationsForTuition = async (req, res) => {
   }
 };
 
-// Approve application (requires payment - handled in payment controller)
+// Update application status (Accept/Reject)
 exports.updateApplicationStatus = async (req, res) => {
   try {
     const { applicationId } = req.params;
@@ -155,6 +151,7 @@ exports.updateApplicationStatus = async (req, res) => {
     // Reject application
     if (status === 'rejected') {
       application.status = 'rejected';
+      application.respondedAt = new Date(); // ✅ Added respondedAt
       if (rejectionReason) {
         application.rejectionReason = rejectionReason;
       }
@@ -167,7 +164,7 @@ exports.updateApplicationStatus = async (req, res) => {
       });
     }
 
-    // Approval requires payment (handled separately in payment flow)
+    // For acceptance, it should go through payment first
     res.status(400).json({
       success: false,
       message: 'Application approval requires payment completion'
@@ -202,21 +199,16 @@ exports.withdrawApplication = async (req, res) => {
       });
     }
 
-    // Can't withdraw approved applications
-    if (application.status === 'approved') {
+    // Can't withdraw approved/accepted applications
+    if (application.status === 'accepted') { // ✅ Changed from 'approved'
       return res.status(400).json({
         success: false,
-        message: 'Cannot withdraw approved application'
+        message: 'Cannot withdraw accepted application'
       });
     }
 
     application.status = 'withdrawn';
     await application.save();
-
-    // Decrement application count
-    await Tuition.findByIdAndUpdate(application.tuition, {
-      $inc: { applicationCount: -1 }
-    });
 
     res.json({
       success: true,
