@@ -38,17 +38,41 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  // Tutor specific fields - matching your MongoDB collection
+  
+  // Common fields
+  address: {
+    type: String,
+    trim: true
+  },
+  location: {
+    type: String,
+    trim: true
+  },
+  
+  // Student specific fields
+  grade: {
+    type: String
+  },
+  institution: {
+    type: String
+  },
+  
+  // Tutor specific fields
   subjects: [{
     type: String
   }],
   experience: {
-    type: Number,  // Changed from String to Number to match collection
+    type: Number,
     default: 0
   },
-  location: {
-    type: String,  // Added location field from collection
-    trim: true
+  education: [{
+    degree: String,
+    institution: String,
+    year: String
+  }],
+  bio: {
+    type: String,
+    maxlength: 500
   },
   rating: {
     type: Number,
@@ -56,16 +80,9 @@ const userSchema = new mongoose.Schema({
     min: 0,
     max: 5
   },
-  active: {  // Added active field from collection
-    type: Boolean,
-    default: true
-  },
-  // Additional tutor fields (not in your sample but might be needed)
-  education: {
-    type: String,
-    required: function() {
-      return this.role === 'tutor';
-    }
+  totalReviews: {
+    type: Number,
+    default: 0
   },
   hourlyRate: {
     type: Number,
@@ -75,6 +92,12 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  active: {
+    type: Boolean,
+    default: true
+  },
+  
+  // Additional fields
   status: {
     type: String,
     enum: ['active', 'suspended', 'blocked'],

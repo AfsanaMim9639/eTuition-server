@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 
 const tuitionSchema = new mongoose.Schema({
-  // Original MongoDB fields
   title: {
     type: String,
     required: [true, 'Title is required'],
@@ -11,9 +10,9 @@ const tuitionSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Subject is required']
   },
-  level: {  // Changed from 'class' to 'level'
+  grade: {  // Changed back to 'grade' to match your routes
     type: String,
-    required: [true, 'Level is required']
+    required: [true, 'Grade is required']
   },
   location: {
     type: String,
@@ -24,9 +23,29 @@ const tuitionSchema = new mongoose.Schema({
     required: [true, 'Salary is required'],
     min: 0
   },
-  days_per_week: {  // Changed from 'daysPerWeek' to 'days_per_week'
+  schedule: {  // Added schedule field
+    type: String,
+    required: [true, 'Schedule is required']
+  },
+  requirements: {
+    type: String,
+    required: [true, 'Requirements are required']
+  },
+  
+  // Reference fields
+  studentId: {  // Changed from postedBy to studentId to match your backend logic
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: [true, 'Student ID is required']
+  },
+  approvedTutor: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  
+  // Additional fields from your MongoDB
+  days_per_week: {
     type: Number,
-    required: [true, 'Days per week is required'],
     min: 1,
     max: 7
   },
@@ -56,64 +75,47 @@ const tuitionSchema = new mongoose.Schema({
   student_details: {
     type: mongoose.Schema.Types.Mixed
   },
-  requirements: {
-    type: String,
-    required: [true, 'Requirements are required']
-  },
-  posted_by: {
-    type: String,
-    required: true
-  },
   contact: {
     type: mongoose.Schema.Types.Mixed
   },
+  
+  // Status and tracking
   status: {
     type: String,
     enum: ['open', 'closed', 'ongoing', 'completed'],
     default: 'open'
   },
-  posted_date: {
-    type: String
-  },
   views: {
     type: Number,
     default: 0
   },
+  postedAt: {  // Added postedAt to match your backend usage
+    type: Date,
+    default: Date.now
+  },
+  closedAt: {
+    type: Date
+  },
   
-  // Additional fields for compatibility
+  // Additional fields
   description: {
     type: String
-  },
-  postedBy: {  // For User reference if needed
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  },
-  approvedTutor: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
   }
 }, {
-  timestamps: true
+  timestamps: true  // This will add createdAt and updatedAt
 });
 
-// Virtual field to map 'level' to 'class' for frontend compatibility
-tuitionSchema.virtual('class').get(function() {
-  return this.level;
-});
-
-// Virtual field to map 'days_per_week' to 'daysPerWeek'
+// Virtual fields for compatibility
 tuitionSchema.virtual('daysPerWeek').get(function() {
   return this.days_per_week;
 });
 
-// Virtual field to map 'tutoring_type' to 'category'
 tuitionSchema.virtual('category').get(function() {
   if (this.tutoring_type === 'Home Tutoring') return 'Offline';
   if (this.tutoring_type === 'Online Tutoring') return 'Online';
   return 'Both';
 });
 
-// Virtual field to map 'preferred_medium' to 'medium'
 tuitionSchema.virtual('medium').get(function() {
   return this.preferred_medium;
 });
@@ -123,8 +125,9 @@ tuitionSchema.set('toJSON', { virtuals: true });
 tuitionSchema.set('toObject', { virtuals: true });
 
 // Index for better query performance
-tuitionSchema.index({ status: 1, createdAt: -1 });
+tuitionSchema.index({ status: 1, postedAt: -1 });
+tuitionSchema.index({ studentId: 1, status: 1 });
 tuitionSchema.index({ subject: 1, tutoring_type: 1 });
-tuitionSchema.index({ posted_date: -1 });
+tuitionSchema.index({ grade: 1, location: 1 });
 
 module.exports = mongoose.model('Tuition', tuitionSchema);
