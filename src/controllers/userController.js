@@ -1,118 +1,129 @@
 const User = require('../models/User');
 
-// Get all tutors with filters and pagination
+// Get all tutors with filters
 exports.getAllTutors = async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 10, 
-      search, 
-      subject,
-      location,
-      minRating,
-      minExperience
-    } = req.query;
-
-    const query = { role: 'tutor', active: true };  // Changed from status to active
-
-    // Search by name
-    if (search) {
-      query.name = { $regex: search, $options: 'i' };
+    console.log('🔍 getAllTutors called with params:', req.query);
+    
+    const { search, subject, location, minRating, minExperience } = req.query;
+    
+    // Base query - only role check (removed active and status checks)
+    const query = { role: 'tutor' };
+    
+    // Apply search filter (searches in name)
+    if (search && search.trim()) {
+      query.name = { $regex: search.trim(), $options: 'i' };
     }
-
-    // Filter by subject
-    if (subject) {
-      query.subjects = { $in: [subject] };
+    
+    // Apply subject filter (partial match in subjects array)
+    if (subject && subject.trim()) {
+      query.subjects = { 
+        $elemMatch: { 
+          $regex: subject.trim(), 
+          $options: 'i' 
+        } 
+      };
     }
-
-    // Filter by location
-    if (location) {
-      query.location = { $regex: location, $options: 'i' };
+    
+    // Apply location filter (searches in address field since location doesn't exist)
+    if (location && location.trim()) {
+      query.address = { $regex: location.trim(), $options: 'i' };
     }
-
-    // Filter by minimum rating
+    
+    // Apply rating filter
     if (minRating) {
-      query.rating = { $gte: Number(minRating) };
+      const rating = parseFloat(minRating);
+      if (!isNaN(rating)) {
+        query.rating = { $gte: rating };
+      }
     }
-
-    // Filter by minimum experience
+    
+    // Apply experience filter
     if (minExperience) {
-      query.experience = { $gte: Number(minExperience) };
+      const exp = parseInt(minExperience);
+      if (!isNaN(exp)) {
+        query.experience = { $gte: exp };
+      }
     }
-
-    const skip = (page - 1) * limit;
-
+    
+    console.log('🔎 MongoDB Query:', JSON.stringify(query, null, 2));
+    
+    // Fetch tutors
     const tutors = await User.find(query)
       .select('-password')
       .sort({ rating: -1, createdAt: -1 })
-      .limit(Number(limit))
-      .skip(skip);
-
-    const total = await User.countDocuments(query);
-
-    res.json({
+      .lean();
+    
+    console.log(`✅ Found ${tutors.length} tutors`);
+    
+    // Return response
+    res.status(200).json({
       success: true,
-      tutors,
-      pagination: {
-        currentPage: Number(page),
-        totalPages: Math.ceil(total / limit),
-        totalItems: total,
-        itemsPerPage: Number(limit)
-      }
+      count: tutors.length,
+      tutors
     });
+    
   } catch (error) {
-    console.error('Get tutors error:', error);
+    console.error('❌ Error in getAllTutors:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch tutors'
+      message: 'Failed to fetch tutors',
+      error: error.message
     });
   }
 };
 
-// Get latest tutors for home page
+// Get latest tutors
 exports.getLatestTutors = async (req, res) => {
   try {
-    const tutors = await User.find({ 
-      role: 'tutor', 
-      active: true  // Changed from status: 'active' to active: true
-    })
+    console.log('🔍 getLatestTutors called');
+    
+    const tutors = await User.find({ role: 'tutor' })
       .select('-password')
       .sort({ createdAt: -1 })
-      .limit(6);
-
-    res.json({
+      .limit(8)
+      .lean();
+    
+    console.log(`✅ Found ${tutors.length} latest tutors`);
+    
+    res.status(200).json({
       success: true,
+      count: tutors.length,
       tutors
     });
   } catch (error) {
-    console.error('Get latest tutors error:', error);
+    console.error('❌ Error in getLatestTutors:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch latest tutors'
+      message: error.message
     });
   }
 };
 
-// Get user profile by ID
+// Get user profile
 exports.getUserProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.params.userId).select('-password');
-
+    const { userId } = req.params;
+    console.log('🔍 getUserProfile called for:', userId);
+    
+    const user = await User.findById(userId).select('-password').lean();
+    
     if (!user) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
-
-    res.json({
+    
+    res.status(200).json({
       success: true,
-      user
+      data: user
     });
   } catch (error) {
+    console.error('❌ Error in getUserProfile:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch user profile'
+      message: error.message
     });
   }
 };
@@ -120,38 +131,44 @@ exports.getUserProfile = async (req, res) => {
 // Update user profile
 exports.updateUserProfile = async (req, res) => {
   try {
-    const userId = req.user.userId;
     const updates = req.body;
-
-    // Don't allow updating these fields
+    console.log('🔍 updateUserProfile called by:', req.user.userId);
+    
+    // Prevent updating sensitive fields
+    delete updates.password;
     delete updates.email;
     delete updates.role;
-    delete updates.password;
+    delete updates._id;
     delete updates.totalEarnings;
     delete updates.rating;
-
+    delete updates.totalReviews;
+    
     const user = await User.findByIdAndUpdate(
-      userId,
+      req.user.userId,
       updates,
-      { new: true, runValidators: true }
+      { 
+        new: true, 
+        runValidators: true 
+      }
     ).select('-password');
-
+    
     if (!user) {
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
-
-    res.json({
+    
+    res.status(200).json({
       success: true,
       message: 'Profile updated successfully',
-      user
+      data: user
     });
   } catch (error) {
+    console.error('❌ Error in updateUserProfile:', error);
     res.status(500).json({
       success: false,
-      message: error.message || 'Failed to update profile'
+      message: error.message
     });
   }
 };

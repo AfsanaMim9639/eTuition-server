@@ -35,6 +35,7 @@ const tuitionRoutes = require('./routes/tuitionRoutes');
 const applicationRoutes = require('./routes/applicationRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const studentRoutes = require('./routes/studentRoutes');
 
 // Use Routes
 app.use('/api/auth', authRoutes);
@@ -43,6 +44,7 @@ app.use('/api/tuitions', tuitionRoutes);
 app.use('/api/applications', applicationRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/student', studentRoutes);
 
 // Root Route
 app.get('/', (req, res) => {

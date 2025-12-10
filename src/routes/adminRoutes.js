@@ -13,11 +13,11 @@ router.get('/stats', adminController.getDashboardStats);
 // User management
 router.get('/users', adminController.getAllUsers);
 router.patch('/users/:userId/role', adminController.updateUserRole);
-router.patch('/users/:userId/status', adminController.updateUserStatus);
+router.patch('/users/:userId/status', adminController.updateUserStatus); // ✅ Good
 router.delete('/users/:userId', adminController.deleteUser);
 
 // Tuition management
 router.get('/tuitions', adminController.getAllTuitionsAdmin);
-router.patch('/tuitions/:tuitionId/status', adminController.updateTuitionStatus);
+router.patch('/tuitions/:tuitionId/status', adminController.updateTuitionStatus); // ✅ Good
 
 module.exports = router;
