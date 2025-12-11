@@ -1,97 +1,105 @@
+// Dependencies
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
-require('dotenv').config();
 
+// Initialize Express
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// CORS Configuration
+// Middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL || ['http://localhost:5173', 'http://localhost:3000'],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  origin: process.env.FRONTEND_URL || '*',
+  credentials: true
 }));
-
-// Body Parser
 app.use(express.json());
 
 // Request Logger
 app.use((req, res, next) => {
-  console.log(`📥 ${new Date().toLocaleTimeString()} - ${req.method} ${req.path}`);
+  console.log(`${req.method} ${req.path}`);
   next();
 });
 
-// MongoDB Connection
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('✅ MongoDB Connected Successfully'))
-  .catch(err => console.error('❌ MongoDB Connection Error:', err));
+// MongoDB Connection (with error handling)
+if (process.env.MONGODB_URI) {
+  mongoose.connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+  })
+  .then(() => console.log('✅ MongoDB Connected'))
+  .catch(err => console.error('❌ MongoDB Error:', err.message));
+}
 
-// Import Routes
-const authRoutes = require('./routes/authRoutes');
-const userRoutes = require('./routes/userRoutes');
-const tuitionRoutes = require('./routes/tuitionRoutes');
-const applicationRoutes = require('./routes/applicationRoutes');
-const paymentRoutes = require('./routes/paymentRoutes');
-const adminRoutes = require('./routes/adminRoutes');
-const studentRoutes = require('./routes/studentRoutes');
-
-// Use Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/tuitions', tuitionRoutes);
-app.use('/api/applications', applicationRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/student', studentRoutes);
-
-// Root Route
+// Health Check Route
 app.get('/', (req, res) => {
   res.json({ 
-    message: '🎓 Tuition Management API is running!',
+    status: 'success',
+    message: '✅ API is running!',
     version: '1.0.0',
-    endpoints: {
-      tutors: '/api/users/tutors',
-      latestTutors: '/api/users/tutors/latest',
-      tuitions: '/api/tuitions',
-      latestTuitions: '/api/tuitions/latest'
-    }
+    timestamp: new Date().toISOString()
   });
 });
+
+app.get('/api', (req, res) => {
+  res.json({ 
+    status: 'success',
+    message: 'API endpoint working'
+  });
+});
+
+// Import and use routes (with try-catch)
+try {
+  // Routes
+  const authRoutes = require('./routes/authRoutes');
+  const userRoutes = require('./routes/userRoutes');
+  const tuitionRoutes = require('./routes/tuitionRoutes');
+  const applicationRoutes = require('./routes/applicationRoutes');
+  const paymentRoutes = require('./routes/paymentRoutes');
+  const adminRoutes = require('./routes/adminRoutes');
+  const studentRoutes = require('./routes/studentRoutes');
+
+  // Mount routes
+  app.use('/api/auth', authRoutes);
+  app.use('/api/users', userRoutes);
+  app.use('/api/tuitions', tuitionRoutes);
+  app.use('/api/applications', applicationRoutes);
+  app.use('/api/payments', paymentRoutes);
+  app.use('/api/admin', adminRoutes);
+  app.use('/api/student', studentRoutes);
+  
+  console.log('✅ All routes loaded successfully');
+} catch (error) {
+  console.error('❌ Error loading routes:', error.message);
+}
 
 // 404 Handler
 app.use((req, res) => {
-  console.log(`❌ 404 - Route not found: ${req.method} ${req.path}`);
   res.status(404).json({
-    success: false,
-    message: `Route ${req.path} not found`
+    status: 'error',
+    message: 'Route not found',
+    path: req.path
   });
 });
 
-// Error Handler Middleware
+// Error Handler
 app.use((err, req, res, next) => {
-  console.error('❌ Error:', err.message);
-  console.error(err.stack);
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || 'Internal Server Error'
+  console.error('Error:', err.message);
+  res.status(500).json({
+    status: 'error',
+    message: 'Internal server error'
   });
 });
 
-// ✅ শুধু এই part টা change করুন:
-// Local development এর জন্য
-if (process.env.NODE_ENV !== 'production') {
+// Export for Vercel
+module.exports = app;
+
+// Local development only
+if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`
 ╔════════════════════════════════════════╗
-║  🚀 Server is running on port ${PORT}   ║
-║  📍 http://localhost:${PORT}             ║
-║  📚 API: http://localhost:${PORT}/api   ║
+║  🚀 Server running on port ${PORT}      ║
 ╚════════════════════════════════════════╝
     `);
   });
 }
-
-// ✅ এই line টা add করুন (Vercel এর জন্য)
-module.exports = app;
