@@ -1,43 +1,23 @@
 require('dotenv').config();
 const express = require('express');
+const cors = require('cors');
 const mongoose = require('mongoose');
 
 const app = express();
+const PORT = process.env.PORT || 5000;
 
-// CORS manually
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
+// Middleware
+app.use(cors({
+  origin: process.env.FRONTEND_URL || '*',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
-// JSON parsing manually (without body-parser)
-app.use((req, res, next) => {
-  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
-    let data = '';
-    req.on('data', chunk => {
-      data += chunk;
-    });
-    req.on('end', () => {
-      try {
-        req.body = data ? JSON.parse(data) : {};
-      } catch (e) {
-        req.body = {};
-      }
-      next();
-    });
-  } else {
-    next();
-  }
-});
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Logging
+// Request logging
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
@@ -61,74 +41,177 @@ const connectDB = async () => {
 
 connectDB();
 
-// Routes
+// Root routes
 app.get('/', (req, res) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.end(JSON.stringify({
+  res.json({
     status: 'success',
     message: '✅ Tuition Management API is running!',
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    env: process.env.NODE_ENV || 'development'
-  }));
+    env: process.env.NODE_ENV || 'development',
+    endpoints: {
+      auth: '/api/auth',
+      users: '/api/users',
+      tuitions: '/api/tuitions',
+      applications: '/api/applications',
+      payments: '/api/payments',
+      admin: '/api/admin',
+      student: '/api/student'
+    }
+  });
 });
 
 app.get('/api', (req, res) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.end(JSON.stringify({
+  res.json({
     status: 'success',
     message: 'API endpoint working',
-    note: 'Basic functionality enabled'
-  }));
+    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+  });
 });
 
 app.get('/api/health', (req, res) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.end(JSON.stringify({
+  res.json({
     status: 'healthy',
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     uptime: process.uptime(),
-    memory: process.memoryUsage()
-  }));
+    memory: process.memoryUsage(),
+    timestamp: new Date().toISOString()
+  });
 });
 
-// 404 handler
+// Load routes with comprehensive error handling
+const loadRoutes = () => {
+  const loadedRoutes = [];
+  const failedRoutes = [];
+
+  try {
+    console.log('📦 Loading routes...');
+    
+    const routeConfigs = [
+      { path: '/api/auth', file: './routes/authRoutes', name: 'Auth' },
+      { path: '/api/users', file: './routes/userRoutes', name: 'Users' },
+      { path: '/api/tuitions', file: './routes/tuitionRoutes', name: 'Tuitions' },
+      { path: '/api/applications', file: './routes/applicationRoutes', name: 'Applications' },
+      { path: '/api/payments', file: './routes/paymentRoutes', name: 'Payments' },
+      { path: '/api/admin', file: './routes/adminRoutes', name: 'Admin' },
+      { path: '/api/student', file: './routes/studentRoutes', name: 'Student' }
+    ];
+
+    routeConfigs.forEach(config => {
+      try {
+        const routeHandler = require(config.file);
+        app.use(config.path, routeHandler);
+        loadedRoutes.push(config.name);
+        console.log(`✅ Loaded: ${config.name} routes (${config.path})`);
+      } catch (error) {
+        failedRoutes.push({ 
+          name: config.name, 
+          path: config.path,
+          error: error.message 
+        });
+        console.error(`❌ Failed to load ${config.name}:`, error.message);
+        
+        // Create fallback route for failed routes
+        app.use(config.path, (req, res) => {
+          res.status(503).json({
+            status: 'error',
+            message: `${config.name} routes are temporarily unavailable`,
+            detail: process.env.NODE_ENV === 'development' ? error.message : 'Service unavailable'
+          });
+        });
+      }
+    });
+
+    console.log(`\n✅ Route Loading Summary:`);
+    console.log(`   Loaded: ${loadedRoutes.length}/${routeConfigs.length}`);
+    console.log(`   Success: ${loadedRoutes.join(', ')}`);
+    
+    if (failedRoutes.length > 0) {
+      console.log(`   Failed: ${failedRoutes.map(r => r.name).join(', ')}`);
+    }
+    
+    return { loadedRoutes, failedRoutes };
+  } catch (error) {
+    console.error('❌ Critical error loading routes:', error);
+    return { loadedRoutes: [], failedRoutes: [] };
+  }
+};
+
+// Load all routes
+const routeStatus = loadRoutes();
+
+// Route status endpoint
+app.get('/api/routes-status', (req, res) => {
+  res.json({
+    status: 'success',
+    loaded: routeStatus.loadedRoutes,
+    failed: routeStatus.failedRoutes.map(r => ({
+      name: r.name,
+      path: r.path
+    })),
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Test endpoint for debugging
+app.get('/api/test', (req, res) => {
+  res.json({
+    status: 'success',
+    message: 'Test endpoint working',
+    environment: process.env.NODE_ENV,
+    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// 404 handler - must be after all routes
 app.use((req, res) => {
-  res.status(404);
-  res.setHeader('Content-Type', 'application/json');
-  res.end(JSON.stringify({
+  res.status(404).json({
     status: 'error',
     message: 'Route not found',
-    path: req.path
-  }));
+    path: req.path,
+    method: req.method,
+    availableEndpoints: [
+      'GET /',
+      'GET /api',
+      'GET /api/health',
+      'POST /api/auth/login',
+      'POST /api/auth/register',
+      'GET /api/tuitions',
+      'GET /api/users/tutors'
+    ]
+  });
 });
 
-// Error handler
+// Global error handler - must be last
 app.use((err, req, res, next) => {
+  console.error('💥 Global Error Handler:');
   console.error('Error:', err.message);
-  console.error(err.stack);
-  res.status(500);
-  res.setHeader('Content-Type', 'application/json');
-  res.end(JSON.stringify({
+  console.error('Stack:', err.stack);
+  
+  res.status(err.status || 500).json({
     status: 'error',
-    message: 'Internal server error',
-    error: process.env.NODE_ENV === 'development' ? err.message : 'An error occurred'
-  }));
+    message: err.message || 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? {
+      message: err.message,
+      stack: err.stack
+    } : undefined
+  });
 });
 
 // Export for Vercel
 module.exports = app;
 
-// Local development
+// Local development server
 if (require.main === module) {
-  const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
     console.log(`
 ╔═══════════════════════════════════════╗
 ║   🚀 Tuition Server Running           ║
 ║   Port: ${PORT}                       ║
 ║   Environment: ${process.env.NODE_ENV || 'development'} ║
+║   MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected ✅' : 'Disconnected ❌'} ║
 ╚═══════════════════════════════════════╝
     `);
   });
