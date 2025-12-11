@@ -1,55 +1,62 @@
-// Dependencies
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 
-// Initialize Express
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors({
   origin: process.env.FRONTEND_URL || '*',
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
-app.use(express.json());
 
-// Request Logger
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Logging
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`);
   next();
 });
 
-// MongoDB Connection (with error handling)
-if (process.env.MONGODB_URI) {
-  mongoose.connect(process.env.MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-  })
-  .then(() => console.log('✅ MongoDB Connected'))
-  .catch(err => console.error('❌ MongoDB Error:', err.message));
-}
+// MongoDB Connection
+const connectDB = async () => {
+  try {
+    if (process.env.MONGODB_URI) {
+      await mongoose.connect(process.env.MONGODB_URI);
+      console.log('✅ MongoDB Connected');
+    }
+  } catch (error) {
+    console.error('❌ MongoDB Error:', error.message);
+  }
+};
 
-// Health Check Route
+connectDB();
+
+// Root route (BEFORE importing other routes)
 app.get('/', (req, res) => {
-  res.json({ 
+  res.json({
     status: 'success',
-    message: '✅ API is running!',
+    message: '✅ Tuition Management API is running!',
     version: '1.0.0',
     timestamp: new Date().toISOString()
   });
 });
 
 app.get('/api', (req, res) => {
-  res.json({ 
+  res.json({
     status: 'success',
     message: 'API endpoint working'
   });
 });
 
-// Import and use routes (with try-catch)
+// Import routes with error handling
+let routesLoaded = false;
 try {
-  // Routes
   const authRoutes = require('./routes/authRoutes');
   const userRoutes = require('./routes/userRoutes');
   const tuitionRoutes = require('./routes/tuitionRoutes');
@@ -58,7 +65,7 @@ try {
   const adminRoutes = require('./routes/adminRoutes');
   const studentRoutes = require('./routes/studentRoutes');
 
-  // Mount routes
+  // Use routes
   app.use('/api/auth', authRoutes);
   app.use('/api/users', userRoutes);
   app.use('/api/tuitions', tuitionRoutes);
@@ -66,40 +73,40 @@ try {
   app.use('/api/payments', paymentRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/student', studentRoutes);
-  
-  console.log('✅ All routes loaded successfully');
+
+  routesLoaded = true;
+  console.log('✅ Routes loaded successfully');
 } catch (error) {
   console.error('❌ Error loading routes:', error.message);
+  console.error(error.stack);
 }
 
-// 404 Handler
+// 404 handler
 app.use((req, res) => {
   res.status(404).json({
     status: 'error',
     message: 'Route not found',
-    path: req.path
+    path: req.path,
+    routesLoaded
   });
 });
 
-// Error Handler
+// Error handler
 app.use((err, req, res, next) => {
   console.error('Error:', err.message);
   res.status(500).json({
     status: 'error',
-    message: 'Internal server error'
+    message: 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
   });
 });
 
-// Export for Vercel
+// Vercel serverless export
 module.exports = app;
 
-// Local development only
+// Local development
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`
-╔════════════════════════════════════════╗
-║  🚀 Server running on port ${PORT}      ║
-╚════════════════════════════════════════╝
-    `);
+    console.log(`🚀 Server running on port ${PORT}`);
   });
 }
