@@ -1,25 +1,45 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
 const mongoose = require('mongoose');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
 
-// Middleware
-app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+// CORS manually
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// JSON parsing manually (without body-parser)
+app.use((req, res, next) => {
+  if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
+    let data = '';
+    req.on('data', chunk => {
+      data += chunk;
+    });
+    req.on('end', () => {
+      try {
+        req.body = data ? JSON.parse(data) : {};
+      } catch (e) {
+        req.body = {};
+      }
+      next();
+    });
+  } else {
+    next();
+  }
+});
 
 // Logging
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`);
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
 });
 
@@ -31,6 +51,8 @@ const connectDB = async () => {
         serverSelectionTimeoutMS: 5000,
       });
       console.log('✅ MongoDB Connected');
+    } else {
+      console.log('⚠️  No MONGODB_URI found');
     }
   } catch (error) {
     console.error('❌ MongoDB Error:', error.message);
@@ -39,58 +61,68 @@ const connectDB = async () => {
 
 connectDB();
 
-// Root route
+// Routes
 app.get('/', (req, res) => {
-  res.json({
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify({
     status: 'success',
     message: '✅ Tuition Management API is running!',
     version: '1.0.0',
     timestamp: new Date().toISOString(),
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
-  });
+    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    env: process.env.NODE_ENV || 'development'
+  }));
 });
 
 app.get('/api', (req, res) => {
-  res.json({
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify({
     status: 'success',
     message: 'API endpoint working',
-    note: 'Routes will be added after testing'
-  });
+    note: 'Basic functionality enabled'
+  }));
 });
 
-// Test route
-app.get('/api/test', (req, res) => {
-  res.json({
-    status: 'success',
-    message: 'Test endpoint working',
-    env: process.env.NODE_ENV
-  });
+app.get('/api/health', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify({
+    status: 'healthy',
+    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    uptime: process.uptime(),
+    memory: process.memoryUsage()
+  }));
 });
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({
+  res.status(404);
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify({
     status: 'error',
     message: 'Route not found',
     path: req.path
-  });
+  }));
 });
 
 // Error handler
 app.use((err, req, res, next) => {
   console.error('Error:', err.message);
-  res.status(500).json({
+  console.error(err.stack);
+  res.status(500);
+  res.setHeader('Content-Type', 'application/json');
+  res.end(JSON.stringify({
     status: 'error',
     message: 'Internal server error',
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined
-  });
+    error: process.env.NODE_ENV === 'development' ? err.message : 'An error occurred'
+  }));
 });
 
-// Vercel serverless export
+// Export for Vercel
 module.exports = app;
 
 // Local development
-if (process.env.NODE_ENV !== 'production') {
+if (require.main === module) {
+  const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
     console.log(`
 ╔═══════════════════════════════════════╗
