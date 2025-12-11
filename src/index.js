@@ -6,9 +6,9 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// CORS Configuration - Must be FIRST
+// CORS Configuration
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'],
+  origin: process.env.FRONTEND_URL || ['http://localhost:5173', 'http://localhost:3000'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -17,7 +17,7 @@ app.use(cors({
 // Body Parser
 app.use(express.json());
 
-// Request Logger - Add this to see all incoming requests
+// Request Logger
 app.use((req, res, next) => {
   console.log(`📥 ${new Date().toLocaleTimeString()} - ${req.method} ${req.path}`);
   next();
@@ -60,7 +60,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// 404 Handler - Catch all undefined routes
+// 404 Handler
 app.use((req, res) => {
   console.log(`❌ 404 - Route not found: ${req.method} ${req.path}`);
   res.status(404).json({
@@ -79,13 +79,19 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start Server
-app.listen(PORT, () => {
-  console.log(`
+// ✅ শুধু এই part টা change করুন:
+// Local development এর জন্য
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`
 ╔════════════════════════════════════════╗
 ║  🚀 Server is running on port ${PORT}   ║
 ║  📍 http://localhost:${PORT}             ║
 ║  📚 API: http://localhost:${PORT}/api   ║
 ╚════════════════════════════════════════╝
-  `);
-});
+    `);
+  });
+}
+
+// ✅ এই line টা add করুন (Vercel এর জন্য)
+module.exports = app;
