@@ -105,8 +105,15 @@ app.use((err, req, res, next) => {
 module.exports = app;
 
 // Local development
-if (require.main === module) {
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`
+╔═══════════════════════════════════════╗
+║   🚀 Tuition Server Running           ║
+║   Port: ${PORT}                       ║
+║   Environment: ${process.env.NODE_ENV || 'development'} ║
+╚═══════════════════════════════════════╝
+    `);
   });
 }
