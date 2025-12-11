@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(cors({
   origin: [
-    'http://localhost:5173',  // Local development
+    'http://localhost:5173',
     'http://localhost:5174',
     'https://etuitionbd-b9b1d.web.app',
     'https://etuitionbd-b9b1d.firebaseapp.com'
@@ -28,22 +28,47 @@ app.use((req, res, next) => {
   next();
 });
 
-// MongoDB Connection
+// MongoDB Connection with detailed logging
 const connectDB = async () => {
   try {
-    if (process.env.MONGODB_URI) {
-      await mongoose.connect(process.env.MONGODB_URI, {
-        serverSelectionTimeoutMS: 5000,
-      });
-      console.log('✅ MongoDB Connected');
-    } else {
-      console.log('⚠️  No MONGODB_URI found');
+    console.log('🔍 MongoDB Connection Debug Info:');
+    console.log('- MONGODB_URI exists:', !!process.env.MONGODB_URI);
+    console.log('- MONGODB_URI length:', process.env.MONGODB_URI?.length || 0);
+    console.log('- NODE_ENV:', process.env.NODE_ENV);
+    
+    if (!process.env.MONGODB_URI) {
+      console.error('❌ CRITICAL: MONGODB_URI is not defined in environment variables!');
+      console.error('Available env vars:', Object.keys(process.env).filter(k => k.includes('MONGO')));
+      return;
     }
+
+    // Show first and last 10 characters for debugging (hide password)
+    const uri = process.env.MONGODB_URI;
+    console.log('- URI preview:', uri.substring(0, 20) + '...' + uri.substring(uri.length - 20));
+
+    console.log('🔄 Attempting MongoDB connection...');
+    
+    await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
+    });
+    
+    console.log('✅ MongoDB Connected Successfully!');
+    console.log('📊 Connection state:', mongoose.connection.readyState);
+    console.log('🗄️  Database name:', mongoose.connection.name);
+    
   } catch (error) {
-    console.error('❌ MongoDB Error:', error.message);
+    console.error('❌ MongoDB Connection Failed!');
+    console.error('Error type:', error.name);
+    console.error('Error message:', error.message);
+    if (error.reason) {
+      console.error('Error reason:', error.reason);
+    }
+    console.error('Full error:', JSON.stringify(error, null, 2));
   }
 };
 
+// Connect to MongoDB
 connectDB();
 
 // Root routes
@@ -54,7 +79,9 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    mongoState: mongoose.connection.readyState,
     env: process.env.NODE_ENV || 'development',
+    hasMongoUri: !!process.env.MONGODB_URI,
     endpoints: {
       auth: '/api/auth',
       users: '/api/users',
@@ -79,9 +106,11 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'healthy',
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    mongoReadyState: mongoose.connection.readyState,
     uptime: process.uptime(),
     memory: process.memoryUsage(),
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    hasMongoUri: !!process.env.MONGODB_URI
   });
 });
 
@@ -159,13 +188,19 @@ app.get('/api/routes-status', (req, res) => {
   });
 });
 
-// Test endpoint for debugging
-app.get('/api/test', (req, res) => {
+// Debug endpoint
+app.get('/api/debug', (req, res) => {
   res.json({
     status: 'success',
-    message: 'Test endpoint working',
     environment: process.env.NODE_ENV,
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    mongodb: {
+      connected: mongoose.connection.readyState === 1,
+      readyState: mongoose.connection.readyState,
+      hasUri: !!process.env.MONGODB_URI,
+      uriLength: process.env.MONGODB_URI?.length || 0,
+      dbName: mongoose.connection.name || 'not connected'
+    },
+    uptime: process.uptime(),
     timestamp: new Date().toISOString()
   });
 });
@@ -181,6 +216,7 @@ app.use((req, res) => {
       'GET /',
       'GET /api',
       'GET /api/health',
+      'GET /api/debug',
       'POST /api/auth/login',
       'POST /api/auth/register',
       'GET /api/tuitions',
