@@ -2,7 +2,7 @@
   "name": "tuition-management-server",
   "version": "1.0.0",
   "description": "Backend API for Tuition Management System",
-  "main": "server.js",
+  "main": "src/index.js",
   
   "scripts": {
     "start": "node src/index.js",
@@ -29,9 +29,7 @@
     "nodemon": "3.0.1"
   },
   
-  
   "engines": {
     "node": ">=18.x"
   }
-
 }
