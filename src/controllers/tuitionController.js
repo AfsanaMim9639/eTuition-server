@@ -2,17 +2,21 @@ const Tuition = require('../models/Tuition');
 const Application = require('../models/Application');
 
 // Get all tuitions with filters and pagination
+// Updated getAllTuitions with class/grade filter
 exports.getAllTuitions = async (req, res) => {
   try {
     const { 
       page = 1, 
       limit = 10, 
       search, 
-      subject, 
+      subject,
+      class: grade, // ✅ NEW: class filter (mapped to grade in DB)
       tutoring_type, 
       preferred_medium,
       minSalary,
       maxSalary,
+      sortBy = 'createdAt', // ✅ NEW: sortBy parameter
+      sortOrder = 'desc', // ✅ NEW: sortOrder parameter
       status = 'open'
     } = req.query;
 
@@ -30,6 +34,11 @@ exports.getAllTuitions = async (req, res) => {
     // Filter by subject
     if (subject) {
       query.subject = subject;
+    }
+
+    // ✅ NEW: Filter by class/grade
+    if (grade) {
+      query.grade = grade;
     }
 
     // Filter by tutoring type
@@ -51,9 +60,18 @@ exports.getAllTuitions = async (req, res) => {
 
     const skip = (page - 1) * limit;
 
+    // ✅ NEW: Dynamic sorting
+    const sortOptions = {};
+    if (sortBy === 'salary') {
+      sortOptions.salary = sortOrder === 'asc' ? 1 : -1;
+    } else {
+      sortOptions.postedAt = sortOrder === 'asc' ? 1 : -1;
+      sortOptions.createdAt = sortOrder === 'asc' ? 1 : -1;
+    }
+
     const tuitions = await Tuition.find(query)
-      .populate('studentId', 'name phone location') // ✅ Added populate
-      .sort({ postedAt: -1, createdAt: -1 }) // ✅ Changed from posted_date
+      .populate('studentId', 'name phone location')
+      .sort(sortOptions)
       .limit(Number(limit))
       .skip(skip);
 
@@ -242,6 +260,51 @@ exports.deleteTuition = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete tuition'
+    });
+  }
+};
+
+
+// Add this to your tuitionController.js
+
+// Get filter options (subjects, classes, etc.)
+exports.getFilterOptions = async (req, res) => {
+  try {
+    // Get unique values from existing tuitions
+    const subjects = await Tuition.distinct('subject', { status: 'open' });
+    const grades = await Tuition.distinct('grade', { status: 'open' });
+    const tutoringTypes = await Tuition.distinct('tutoring_type', { status: 'open' });
+    const mediums = await Tuition.distinct('preferred_medium', { status: 'open' });
+    const locations = await Tuition.distinct('location', { status: 'open' });
+
+    // Get salary range
+    const salaryStats = await Tuition.aggregate([
+      { $match: { status: 'open' } },
+      {
+        $group: {
+          _id: null,
+          minSalary: { $min: '$salary' },
+          maxSalary: { $max: '$salary' }
+        }
+      }
+    ]);
+
+    res.json({
+      success: true,
+      options: {
+        subjects: subjects.filter(Boolean).sort(),
+        grades: grades.filter(Boolean).sort(),
+        tutoringTypes: tutoringTypes.filter(Boolean),
+        mediums: mediums.filter(Boolean),
+        locations: locations.filter(Boolean).sort(),
+        salaryRange: salaryStats[0] || { minSalary: 0, maxSalary: 50000 }
+      }
+    });
+  } catch (error) {
+    console.error('Get filter options error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch filter options'
     });
   }
 };

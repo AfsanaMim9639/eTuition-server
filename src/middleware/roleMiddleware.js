@@ -1,4 +1,9 @@
-// Check if user has required role
+// middleware/roleMiddleware.js
+
+/**
+ * Generic role checker - can check multiple roles
+ * Usage: checkRole('admin', 'tutor')
+ */
 const checkRole = (...allowedRoles) => {
   return (req, res, next) => {
     // Check if user is authenticated
@@ -21,22 +26,22 @@ const checkRole = (...allowedRoles) => {
   };
 };
 
-// Check if user is student
+/**
+ * Pre-defined role checkers
+ */
 const isStudent = checkRole('student');
-
-// Check if user is tutor
 const isTutor = checkRole('tutor');
-
-// Check if user is admin
 const isAdmin = checkRole('admin');
 
-// Check if user is student or admin
+/**
+ * Combined role checkers
+ */
 const isStudentOrAdmin = checkRole('student', 'admin');
-
-// Check if user is tutor or admin
 const isTutorOrAdmin = checkRole('tutor', 'admin');
 
-// Check if user can access any authenticated route
+/**
+ * Check if user is authenticated (any role)
+ */
 const isAuthenticated = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({
@@ -47,7 +52,15 @@ const isAuthenticated = (req, res, next) => {
   next();
 };
 
-// Check ownership (for resources that belong to specific users)
+/**
+ * Check ownership of a resource
+ * Admins can access everything, others only their own resources
+ * 
+ * @param {string} resourceUserIdField - Field name containing user ID (default: 'userId')
+ * 
+ * Example usage:
+ * router.get('/profile/:userId', verifyToken, checkOwnership('userId'), getProfile);
+ */
 const checkOwnership = (resourceUserIdField = 'userId') => {
   return (req, res, next) => {
     if (!req.user) {
@@ -79,6 +92,43 @@ const checkOwnership = (resourceUserIdField = 'userId') => {
   };
 };
 
+/**
+ * Check if user can modify their own resource OR is admin
+ * Useful for update/delete operations
+ * 
+ * Example:
+ * router.patch('/tuitions/:tuitionId', verifyToken, checkOwnershipOrAdmin('studentId'), updateTuition);
+ */
+const checkOwnershipOrAdmin = (resourceUserIdField = 'userId') => {
+  return async (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required.'
+      });
+    }
+
+    // Admin bypasses all checks
+    if (req.user.role === 'admin') {
+      return next();
+    }
+
+    // For other users, check ownership
+    const resourceUserId = req.params[resourceUserIdField] || 
+                          req.body[resourceUserIdField] || 
+                          req.query[resourceUserIdField];
+
+    if (resourceUserId && resourceUserId.toString() !== req.user.userId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. You can only modify your own resources.'
+      });
+    }
+
+    next();
+  };
+};
+
 module.exports = {
   checkRole,
   isStudent,
@@ -87,5 +137,6 @@ module.exports = {
   isStudentOrAdmin,
   isTutorOrAdmin,
   isAuthenticated,
-  checkOwnership
+  checkOwnership,
+  checkOwnershipOrAdmin
 };

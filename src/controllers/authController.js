@@ -245,6 +245,123 @@ exports.login = async (req, res) => {
       message: 'Login failed'
     });
   }
+};// Login user - UPDATED VERSION
+exports.login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    console.log('📥 Login request for:', email);
+
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide email and password'
+      });
+    }
+
+    // Find user (need to include password for comparison)
+    const user = await User.findOne({ email }).select('+password');
+    
+    if (!user) {
+      console.log('❌ User not found:', email);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    console.log('✅ User found:', { email: user.email, role: user.role, id: user._id });
+
+    // Check if it's a social login account
+    if (user.isSocialLogin) {
+      return res.status(400).json({
+        success: false,
+        message: 'This account uses social login. Please login with Google/Facebook.'
+      });
+    }
+
+    // Check account status
+    if (user.status !== 'active') {
+      console.log('❌ Account not active:', user.status);
+      return res.status(403).json({
+        success: false,
+        message: `Your account has been ${user.status}. Please contact support.`
+      });
+    }
+
+    // Check active field for tutors (admins don't need this check)
+    if (user.role === 'tutor' && user.active === false) {
+      console.log('❌ Tutor account deactivated');
+      return res.status(403).json({
+        success: false,
+        message: 'Your tutor account has been deactivated'
+      });
+    }
+
+    // Verify password
+    const isPasswordValid = await user.comparePassword(password);
+    if (!isPasswordValid) {
+      console.log('❌ Invalid password for:', email);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    console.log('✅ Password verified for:', email);
+
+    // Generate token
+    const token = generateToken(user);
+
+    // Create clean user object for response
+    const userResponse = {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      phone: user.phone,
+      profileImage: user.profileImage,
+      address: user.address,
+      location: user.location,
+      status: user.status,
+      active: user.active,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    };
+
+    // Add role-specific fields
+    if (user.role === 'student') {
+      userResponse.grade = user.grade;
+      userResponse.institution = user.institution;
+    } else if (user.role === 'tutor') {
+      userResponse.subjects = user.subjects;
+      userResponse.experience = user.experience;
+      userResponse.education = user.education;
+      userResponse.bio = user.bio;
+      userResponse.rating = user.rating;
+      userResponse.totalReviews = user.totalReviews;
+      userResponse.hourlyRate = user.hourlyRate;
+      userResponse.totalEarnings = user.totalEarnings;
+    }
+    // Admin doesn't need extra fields
+
+    console.log('✅ Login successful for:', email, 'Role:', user.role);
+    console.log('📤 Sending response with user:', userResponse);
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      token,
+      user: userResponse
+    });
+  } catch (error) {
+    console.error('❌ Login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Login failed'
+    });
+  }
 };
 
 // Social login (Google/Facebook)

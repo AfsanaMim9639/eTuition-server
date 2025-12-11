@@ -10,6 +10,7 @@ const { isStudent, isStudentOrAdmin } = require('../middleware/roleMiddleware');
 
 // Public routes - Specific paths FIRST
 router.get('/latest', tuitionController.getLatestTuitions);
+router.get('/filter-options', tuitionController.getFilterOptions); // ✅ NEW: Filter options
 
 // Protected routes - Student's own tuitions
 router.get('/my/tuitions', verifyToken, isStudent, tuitionController.getMyTuitions);
