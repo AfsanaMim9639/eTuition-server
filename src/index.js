@@ -27,7 +27,9 @@ app.use((req, res, next) => {
 const connectDB = async () => {
   try {
     if (process.env.MONGODB_URI) {
-      await mongoose.connect(process.env.MONGODB_URI);
+      await mongoose.connect(process.env.MONGODB_URI, {
+        serverSelectionTimeoutMS: 5000,
+      });
       console.log('✅ MongoDB Connected');
     }
   } catch (error) {
@@ -37,57 +39,40 @@ const connectDB = async () => {
 
 connectDB();
 
-// Root route (BEFORE importing other routes)
+// Root route
 app.get('/', (req, res) => {
   res.json({
     status: 'success',
     message: '✅ Tuition Management API is running!',
     version: '1.0.0',
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
   });
 });
 
 app.get('/api', (req, res) => {
   res.json({
     status: 'success',
-    message: 'API endpoint working'
+    message: 'API endpoint working',
+    note: 'Routes will be added after testing'
   });
 });
 
-// Import routes with error handling
-let routesLoaded = false;
-try {
-  const authRoutes = require('./routes/authRoutes');
-  const userRoutes = require('./routes/userRoutes');
-  const tuitionRoutes = require('./routes/tuitionRoutes');
-  const applicationRoutes = require('./routes/applicationRoutes');
-  const paymentRoutes = require('./routes/paymentRoutes');
-  const adminRoutes = require('./routes/adminRoutes');
-  const studentRoutes = require('./routes/studentRoutes');
-
-  // Use routes
-  app.use('/api/auth', authRoutes);
-  app.use('/api/users', userRoutes);
-  app.use('/api/tuitions', tuitionRoutes);
-  app.use('/api/applications', applicationRoutes);
-  app.use('/api/payments', paymentRoutes);
-  app.use('/api/admin', adminRoutes);
-  app.use('/api/student', studentRoutes);
-
-  routesLoaded = true;
-  console.log('✅ Routes loaded successfully');
-} catch (error) {
-  console.error('❌ Error loading routes:', error.message);
-  console.error(error.stack);
-}
+// Test route
+app.get('/api/test', (req, res) => {
+  res.json({
+    status: 'success',
+    message: 'Test endpoint working',
+    env: process.env.NODE_ENV
+  });
+});
 
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({
     status: 'error',
     message: 'Route not found',
-    path: req.path,
-    routesLoaded
+    path: req.path
   });
 });
 
@@ -106,7 +91,6 @@ module.exports = app;
 
 // Local development
 if (process.env.NODE_ENV !== 'production') {
-  const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
     console.log(`
 ╔═══════════════════════════════════════╗
