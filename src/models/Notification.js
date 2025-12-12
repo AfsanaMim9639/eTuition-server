@@ -67,8 +67,8 @@ const notificationSchema = new mongoose.Schema({
     type: Date
   },
   expiresAt: {
-    type: Date,
-    index: true
+    type: Date
+    // ✅ REMOVED: index: true (already defined in schema.index below)
   }
 }, {
   timestamps: true
@@ -77,7 +77,7 @@ const notificationSchema = new mongoose.Schema({
 // Compound indexes for better query performance
 notificationSchema.index({ user: 1, isRead: 1, createdAt: -1 });
 notificationSchema.index({ user: 1, type: 1, createdAt: -1 });
-notificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // Auto-delete expired
+notificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // ✅ KEPT: Auto-delete expired
 
 // Update readAt when isRead changes to true
 notificationSchema.pre('save', function(next) {

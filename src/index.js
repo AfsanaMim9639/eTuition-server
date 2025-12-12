@@ -4,9 +4,33 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
+const { Server } = require('socket.io');
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
+
+// Socket.io setup
+const io = new Server(server, {
+  cors: {
+    origin: [
+      'http://localhost:5173',
+      'http://localhost:5174',
+      'https://etuitionbd-b9b1d.web.app',
+      'https://etuitionbd-b9b1d.firebaseapp.com'
+    ],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS']
+  }
+});
+
+// Make io available to routes
+app.set('io', io);
+
+// Initialize socket handler
+const socketHandler = require('./socket/socketHandler');
+socketHandler(io);
 
 // Middleware
 app.use(cors({
@@ -28,7 +52,6 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(async (req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   
-  // Ensure DB connection before handling request
   if (mongoose.connection.readyState !== 1) {
     console.log('⚠️  DB not connected, attempting to connect...');
     await connectDB();
@@ -114,6 +137,7 @@ app.get('/', async (req, res) => {
     version: '1.0.0',
     timestamp: new Date().toISOString(),
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    socketio: '✅ enabled',
     endpoints: {
       auth: '/api/auth',
       users: '/api/users',
@@ -121,7 +145,10 @@ app.get('/', async (req, res) => {
       applications: '/api/applications',
       payments: '/api/payments',
       admin: '/api/admin',
-      student: '/api/student'
+      student: '/api/student',
+      conversations: '/api/conversations',
+      messages: '/api/messages',
+      notifications: '/api/notifications' // ✅ NEW
     }
   });
 });
@@ -130,23 +157,20 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'healthy',
     mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    socketio: 'enabled',
     uptime: process.uptime(),
     timestamp: new Date().toISOString()
   });
 });
 
-// ============================================
-// ENHANCED ROUTE LOADING WITH FULL DIAGNOSTICS
-// ============================================
-
+// Enhanced route loading
 const loadRoutes = () => {
   const loadedRoutes = [];
   const failedRoutes = [];
 
   console.log('\n📦 ============ ROUTE LOADING DIAGNOSTICS ============\n');
   
-  // First, check if directories exist
-  const dirsToCheck = ['routes', 'controllers', 'models', 'middleware'];
+  const dirsToCheck = ['routes', 'controllers', 'models', 'middleware', 'socket', 'utils']; // ✅ Added utils
   console.log('📁 Checking directory structure:');
   
   dirsToCheck.forEach(dir => {
@@ -173,7 +197,10 @@ const loadRoutes = () => {
     { path: '/api/applications', file: './routes/applicationRoutes', name: 'Applications' },
     { path: '/api/payments', file: './routes/paymentRoutes', name: 'Payments' },
     { path: '/api/admin', file: './routes/adminRoutes', name: 'Admin' },
-    { path: '/api/student', file: './routes/studentRoutes', name: 'Student' }
+    { path: '/api/student', file: './routes/studentRoutes', name: 'Student' },
+    { path: '/api/conversations', file: './routes/conversationRoutes', name: 'Conversations' },
+    { path: '/api/messages', file: './routes/messageRoutes', name: 'Messages' },
+    { path: '/api/notifications', file: './routes/notificationRoutes', name: 'Notifications' } // ✅ NEW
   ];
 
   routeConfigs.forEach(config => {
@@ -182,7 +209,6 @@ const loadRoutes = () => {
       console.log(`   Path: ${config.path}`);
       console.log(`   File: ${config.file}`);
       
-      // Check if file exists
       const filePath = path.join(__dirname, config.file + '.js');
       const fileExists = fs.existsSync(filePath);
       console.log(`   File exists: ${fileExists ? '✅' : '❌'}`);
@@ -191,12 +217,10 @@ const loadRoutes = () => {
         throw new Error(`File not found: ${filePath}`);
       }
       
-      // Try to require the file
       const routeHandler = require(config.file);
       console.log(`   ✓ Required successfully`);
       console.log(`   ✓ Export type: ${typeof routeHandler}`);
       
-      // Mount the route
       app.use(config.path, routeHandler);
       console.log(`   ✅ Mounted at ${config.path}`);
       
@@ -214,7 +238,6 @@ const loadRoutes = () => {
         stack: error.stack
       });
       
-      // Create fallback route with detailed error
       app.use(config.path, (req, res) => {
         res.status(503).json({
           status: 'error',
@@ -228,15 +251,11 @@ const loadRoutes = () => {
   });
  
   if (loadedRoutes.length > 0) {
-    console.log(`   Success: ${loadedRoutes.join(', ')}`);
+    console.log(`\n✅ Successfully loaded: ${loadedRoutes.join(', ')}`);
   }
   
   if (failedRoutes.length > 0) {
-    console.log(`   Failed: ${failedRoutes.map(r => r.name).join(', ')}`);
-    console.log('\n❌ Failed routes details:');
-    failedRoutes.forEach(r => {
-      console.log(`   - ${r.name}: ${r.error}`);
-    });
+    console.log(`\n❌ Failed to load: ${failedRoutes.map(r => r.name).join(', ')}`);
   }
   console.log('='.repeat(60) + '\n');
   
@@ -270,6 +289,10 @@ app.get('/api/debug', (req, res) => {
       readyState: mongoose.connection.readyState,
       hasUri: !!process.env.MONGODB_URI,
       dbName: mongoose.connection.name || 'not connected'
+    },
+    socketio: {
+      enabled: true,
+      status: 'running'
     },
     routes: {
       loaded: routeStatus.loadedRoutes,
@@ -312,11 +335,13 @@ module.exports = app;
 
 // Local development server
 if (require.main === module) {
-  app.listen(PORT, () => {
+  server.listen(PORT, () => {
     console.log(`
 ╔═══════════════════════════════════════╗
 ║   🚀 Server Running on ${PORT}        ║
 ║   MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected ✅' : 'Disconnected ❌'} ║
+║   Socket.io: Enabled ✅                ║
+║   Notifications: Enabled ✅            ║
 ╚═══════════════════════════════════════╝
     `);
   });

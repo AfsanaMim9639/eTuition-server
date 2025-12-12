@@ -1,18 +1,7 @@
 const Application = require('../models/Application');
 const Tuition = require('../models/Tuition');
-const Notification = require('../models/Notification');
-
-// Helper function to create notification
-const createNotification = async (userId, data) => {
-  try {
-    await Notification.create({
-      user: userId,
-      ...data
-    });
-  } catch (error) {
-    console.error('Error creating notification:', error);
-  }
-};
+const User = require('../models/User');
+const { sendNotification } = require('../utils/notificationHelper'); // ✅ Using helper
 
 // Tutor applies to a tuition
 exports.applyToTuition = async (req, res) => {
@@ -51,6 +40,9 @@ exports.applyToTuition = async (req, res) => {
       });
     }
 
+    // Get tutor details for notification
+    const tutor = await User.findById(tutorId).select('name');
+
     // Create application
     const application = await Application.create({
       tuition: tuitionId,
@@ -66,17 +58,16 @@ exports.applyToTuition = async (req, res) => {
       { path: 'tuition', select: 'title subject grade location salary' }
     ]);
 
-    // Create notification for student
-    await createNotification(tuition.studentId, {
-      type: 'application_received',
-      title: 'New Tutor Application',
-      message: `New tutor applied for ${tuition.subject} - ${tuition.title}`,
-      link: `/dashboard/student/tuition/${tuitionId}/applications`,
-      relatedTuition: tuitionId,
-      relatedApplication: application._id,
-      relatedUser: tutorId,
-      priority: 'high'
-    });
+    // ✅ Send notification using helper
+    await sendNotification(
+      tuition.studentId,
+      'applicationReceived',
+      tutor.name,
+      tuition.title,
+      tuitionId,
+      application._id,
+      tutorId
+    );
 
     console.log('✅ Application submitted successfully');
 
@@ -197,16 +188,13 @@ exports.updateApplicationStatus = async (req, res) => {
       }
       await application.save();
 
-      // Create notification for tutor
-      await createNotification(application.tutor._id, {
-        type: 'application_rejected',
-        title: 'Application Status Update',
-        message: `Your application for ${application.tuition.subject} has been rejected`,
-        link: `/dashboard/tutor/applications`,
-        relatedTuition: application.tuition._id,
-        relatedApplication: application._id,
-        priority: 'medium'
-      });
+      // ✅ Send notification using helper
+      await sendNotification(
+        application.tutor._id,
+        'applicationRejected',
+        application.tuition.title,
+        application.tuition._id
+      );
 
       console.log('✅ Application rejected');
 
@@ -217,10 +205,39 @@ exports.updateApplicationStatus = async (req, res) => {
       });
     }
 
-    // For acceptance, it should go through payment first
+    // Accept application (if payment is done)
+    if (status === 'accepted') {
+      application.status = 'accepted';
+      application.respondedAt = new Date();
+      await application.save();
+
+      // Update tuition status
+      await Tuition.findByIdAndUpdate(application.tuition._id, {
+        status: 'ongoing',
+        approvedTutor: application.tutor._id
+      });
+
+      // ✅ Send notification using helper
+      await sendNotification(
+        application.tutor._id,
+        'applicationAccepted',
+        application.tuition.title,
+        application.tuition._id,
+        application.student
+      );
+
+      console.log('✅ Application accepted');
+
+      return res.json({
+        success: true,
+        message: 'Application accepted',
+        application
+      });
+    }
+
     res.status(400).json({
       success: false,
-      message: 'Application approval requires payment completion'
+      message: 'Invalid status'
     });
   } catch (error) {
     console.error('❌ Update application error:', error);
@@ -239,7 +256,8 @@ exports.withdrawApplication = async (req, res) => {
     console.log('🔙 Withdrawing application:', applicationId);
 
     const application = await Application.findById(applicationId)
-      .populate('tuition', 'subject title');
+      .populate('tuition', 'subject title')
+      .populate('tutor', 'name');
 
     if (!application) {
       return res.status(404).json({
@@ -249,7 +267,7 @@ exports.withdrawApplication = async (req, res) => {
     }
 
     // Verify tutor ownership
-    if (application.tutor.toString() !== req.user.userId) {
+    if (application.tutor._id.toString() !== req.user.userId) {
       return res.status(403).json({
         success: false,
         message: 'You are not authorized to withdraw this application'
@@ -267,16 +285,15 @@ exports.withdrawApplication = async (req, res) => {
     application.status = 'withdrawn';
     await application.save();
 
-    // Create notification for student
-    await createNotification(application.student, {
-      type: 'system_alert',
-      title: 'Application Withdrawn',
-      message: `A tutor withdrew their application for ${application.tuition.subject}`,
-      link: `/dashboard/student/tuition/${application.tuition._id}/applications`,
-      relatedTuition: application.tuition._id,
-      relatedApplication: application._id,
-      priority: 'low'
-    });
+    // ✅ Send notification using helper
+    await sendNotification(
+      application.student,
+      'applicationWithdrawn',
+      application.tutor.name,
+      application.tuition.title,
+      application.tuition._id,
+      application._id
+    );
 
     console.log('✅ Application withdrawn');
 

@@ -33,8 +33,9 @@ const paymentSchema = new mongoose.Schema({
   transactionId: {
     type: String,
     required: [true, 'Transaction ID is required'],
-    unique: true,
+    unique: true, // ✅ This creates index automatically
     trim: true
+    // ❌ REMOVED: index: true (duplicate)
   },
   stripePaymentIntentId: {
     type: String
@@ -91,7 +92,8 @@ const paymentSchema = new mongoose.Schema({
 // Index for better query performance
 paymentSchema.index({ student: 1, status: 1, createdAt: -1 });
 paymentSchema.index({ tutor: 1, status: 1, createdAt: -1 });
-paymentSchema.index({ transactionId: 1 });
+// ✅ REMOVED duplicate: paymentSchema.index({ transactionId: 1 });
+// transactionId already has unique: true which creates index
 paymentSchema.index({ status: 1, paymentDate: -1 });
 
 // Calculate tutor receives amount before saving
