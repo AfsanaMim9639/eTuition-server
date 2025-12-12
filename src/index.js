@@ -22,19 +22,35 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Request logging
-app.use((req, res, next) => {
+// Request logging and DB connection check
+app.use(async (req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  
+  // Ensure DB connection before handling request
+  if (mongoose.connection.readyState !== 1) {
+    console.log('⚠️  DB not connected, attempting to connect...');
+    await connectDB();
+  }
+  
   next();
 });
 
-// MongoDB Connection with detailed logging
+// MongoDB Connection with caching for serverless
+let isConnected = false;
+
 const connectDB = async () => {
+  // If already connected, reuse connection
+  if (isConnected && mongoose.connection.readyState === 1) {
+    console.log('♻️  Reusing existing MongoDB connection');
+    return;
+  }
+
   try {
     console.log('🔍 MongoDB Connection Debug Info:');
     console.log('- MONGODB_URI exists:', !!process.env.MONGODB_URI);
     console.log('- MONGODB_URI length:', process.env.MONGODB_URI?.length || 0);
     console.log('- NODE_ENV:', process.env.NODE_ENV);
+    console.log('- Current readyState:', mongoose.connection.readyState);
     
     if (!process.env.MONGODB_URI) {
       console.error('❌ CRITICAL: MONGODB_URI is not defined in environment variables!');
@@ -48,16 +64,32 @@ const connectDB = async () => {
 
     console.log('🔄 Attempting MongoDB connection...');
     
-    await mongoose.connect(process.env.MONGODB_URI, {
-      serverSelectionTimeoutMS: 10000,
-      socketTimeoutMS: 45000,
+    // Disconnect if in connecting state
+    if (mongoose.connection.readyState === 2) {
+      console.log('⚠️  Detected stuck connection, disconnecting...');
+      await mongoose.disconnect();
+    }
+    
+    const conn = await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 30000,
+      socketTimeoutMS: 75000,
+      connectTimeoutMS: 30000,
+      maxPoolSize: 10,
+      minPoolSize: 2,
+      family: 4,
+      retryWrites: true,
+      retryReads: true,
     });
+    
+    isConnected = true;
     
     console.log('✅ MongoDB Connected Successfully!');
     console.log('📊 Connection state:', mongoose.connection.readyState);
     console.log('🗄️  Database name:', mongoose.connection.name);
+    console.log('🌐 Host:', conn.connection.host);
     
   } catch (error) {
+    isConnected = false;
     console.error('❌ MongoDB Connection Failed!');
     console.error('Error type:', error.name);
     console.error('Error message:', error.message);
@@ -67,6 +99,22 @@ const connectDB = async () => {
     console.error('Full error:', JSON.stringify(error, null, 2));
   }
 };
+
+// Handle connection events
+mongoose.connection.on('connected', () => {
+  isConnected = true;
+  console.log('🟢 Mongoose connected to MongoDB');
+});
+
+mongoose.connection.on('error', (err) => {
+  isConnected = false;
+  console.error('🔴 Mongoose connection error:', err);
+});
+
+mongoose.connection.on('disconnected', () => {
+  isConnected = false;
+  console.log('🟡 Mongoose disconnected from MongoDB');
+});
 
 // Connect to MongoDB
 connectDB();
