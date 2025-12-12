@@ -1,9 +1,10 @@
 const User = require('../models/User');
+const mongoose = require('mongoose');  // ✅ Added
 
 // Get all tutors with filters
 exports.getAllTutors = async (req, res) => {
   try {
-    console.log('📍 getAllTutors called:', req.query);
+    console.log('🔍 getAllTutors called with params:', req.query);
     
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({
@@ -56,11 +57,10 @@ exports.getAllTutors = async (req, res) => {
     
     console.log(`✅ Found ${tutors.length} tutors`);
     
-    // ✅ FIXED: Use consistent response format
     res.json({
       status: 'success',
       count: tutors.length,
-      data: tutors // Changed from 'tutors' to 'data'
+      data: tutors
     });
     
   } catch (error) {
@@ -76,7 +76,7 @@ exports.getAllTutors = async (req, res) => {
 // Get latest tutors
 exports.getLatestTutors = async (req, res) => {
   try {
-    console.log('📍 getLatestTutors called');
+    console.log('🔍 getLatestTutors called');
     
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({
@@ -93,11 +93,10 @@ exports.getLatestTutors = async (req, res) => {
     
     console.log(`✅ Found ${tutors.length} latest tutors`);
     
-    // ✅ FIXED: Use consistent response format
     res.json({
       status: 'success',
       count: tutors.length,
-      data: tutors // Changed from 'tutors' to 'data'
+      data: tutors
     });
   } catch (error) {
     console.error('❌ Error in getLatestTutors:', error);
@@ -113,7 +112,7 @@ exports.getLatestTutors = async (req, res) => {
 exports.getUserProfile = async (req, res) => {
   try {
     const { userId } = req.params;
-    console.log('📍 getUserProfile called for:', userId);
+    console.log('🔍 getUserProfile called for:', userId);
     
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({
@@ -131,7 +130,6 @@ exports.getUserProfile = async (req, res) => {
       });
     }
     
-    // ✅ FIXED: Use consistent response format
     res.json({
       status: 'success',
       data: user
@@ -150,7 +148,7 @@ exports.getUserProfile = async (req, res) => {
 exports.updateUserProfile = async (req, res) => {
   try {
     const updates = req.body;
-    console.log('📍 updateUserProfile called by:', req.user.userId);
+    console.log('🔍 updateUserProfile called by:', req.user.userId);
     
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({
@@ -159,7 +157,6 @@ exports.updateUserProfile = async (req, res) => {
       });
     }
     
-    // Prevent updating sensitive fields
     delete updates.password;
     delete updates.email;
     delete updates.role;
@@ -184,7 +181,6 @@ exports.updateUserProfile = async (req, res) => {
       });
     }
     
-    // ✅ FIXED: Use consistent response format
     res.json({
       status: 'success',
       message: 'Profile updated successfully',
