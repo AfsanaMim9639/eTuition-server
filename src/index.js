@@ -226,13 +226,7 @@ const loadRoutes = () => {
       });
     }
   });
-
-  console.log('\n' + '='.repeat(60));
-  console.log(`✅ Route Loading Summary:`);
-  console.log(`   Total: ${routeConfigs.length}`);
-  console.log(`   Loaded: ${loadedRoutes.length}`);
-  console.log(`   Failed: ${failedRoutes.length}`);
-  
+ 
   if (loadedRoutes.length > 0) {
     console.log(`   Success: ${loadedRoutes.join(', ')}`);
   }
