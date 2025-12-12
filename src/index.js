@@ -120,7 +120,12 @@ mongoose.connection.on('disconnected', () => {
 connectDB();
 
 // Root routes
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {  // ← async add করুন
+  // ✅ Wait for DB connection
+  if (mongoose.connection.readyState !== 1) {
+    await connectDB();
+  }
+  
   res.json({
     status: 'success',
     message: '✅ Tuition Management API is running!',
