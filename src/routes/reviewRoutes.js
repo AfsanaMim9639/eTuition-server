@@ -8,7 +8,7 @@ const {
   deleteReview,
   canReviewTutor
 } = require('../controllers/reviewController');
-const { verifyToken } = require('../middleware/auth');
+const { verifyToken } = require('../middleware/authMiddleware');
 
 // Public routes
 router.get('/tutor/:tutorId', getTutorReviews);

@@ -148,7 +148,8 @@ app.get('/', async (req, res) => {
       student: '/api/student',
       conversations: '/api/conversations',
       messages: '/api/messages',
-      notifications: '/api/notifications' // ✅ NEW
+      notifications: '/api/notifications', // ✅ NEW
+      reviews: '/api/reviews'
     }
   });
 });
@@ -200,7 +201,9 @@ const loadRoutes = () => {
     { path: '/api/student', file: './routes/studentRoutes', name: 'Student' },
     { path: '/api/conversations', file: './routes/conversationRoutes', name: 'Conversations' },
     { path: '/api/messages', file: './routes/messageRoutes', name: 'Messages' },
-    { path: '/api/notifications', file: './routes/notificationRoutes', name: 'Notifications' } // ✅ NEW
+    { path: '/api/notifications', file: './routes/notificationRoutes', name: 'Notifications' }, // ✅ NEW
+    { path: '/api/reviews', file: './routes/reviewRoutes', name: 'Reviews' } // ✅ NEW
+ 
   ];
 
   routeConfigs.forEach(config => {

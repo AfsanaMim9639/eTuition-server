@@ -83,7 +83,7 @@ exports.getMessages = async (req, res) => {
   try {
     const { conversationId } = req.params;
     const userId = req.user.userId;
-    const { page = 1, limit = 50 } = req.query;
+    const { page = 1, limit = 50, since } = req.query;
 
     // Verify user is part of conversation
     const conversation = await Conversation.findOne({
@@ -98,15 +98,23 @@ exports.getMessages = async (req, res) => {
       });
     }
 
-    // Get messages with pagination
-    const messages = await Message.find({
+    // Build query
+    const query = {
       conversation: conversationId,
       deletedBy: { $ne: userId }
-    })
+    };
+
+    // If 'since' timestamp provided, get only newer messages (for polling)
+    if (since) {
+      query.createdAt = { $gt: new Date(since) };
+    }
+
+    // Get messages with pagination
+    const messages = await Message.find(query)
     .populate('sender', 'name email role profileImage')
-    .sort({ createdAt: -1 })
+    .sort({ createdAt: since ? 1 : -1 }) // Ascending if polling, descending for initial load
     .limit(limit * 1)
-    .skip((page - 1) * limit);
+    .skip(since ? 0 : (page - 1) * limit); // No pagination for polling
 
     // Get total count
     const total = await Message.countDocuments({
@@ -116,7 +124,7 @@ exports.getMessages = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: messages.reverse(), // Reverse to show oldest first
+      data: since ? messages : messages.reverse(), // Reverse only for initial load
       pagination: {
         total,
         page: parseInt(page),
