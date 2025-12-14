@@ -10,7 +10,7 @@ const tuitionSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Subject is required']
   },
-  grade: {  // Changed back to 'grade' to match your routes
+  grade: {
     type: String,
     required: [true, 'Grade is required']
   },
@@ -23,7 +23,7 @@ const tuitionSchema = new mongoose.Schema({
     required: [true, 'Salary is required'],
     min: 0
   },
-  schedule: {  // Added schedule field
+  schedule: {
     type: String,
     required: [true, 'Schedule is required']
   },
@@ -33,7 +33,7 @@ const tuitionSchema = new mongoose.Schema({
   },
   
   // Reference fields
-  studentId: {  // Changed from postedBy to studentId to match your backend logic
+  studentId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: [true, 'Student ID is required']
@@ -43,7 +43,7 @@ const tuitionSchema = new mongoose.Schema({
     ref: 'User'
   },
   
-  // Additional fields from your MongoDB
+  // Additional fields
   days_per_week: {
     type: Number,
     min: 1,
@@ -85,11 +85,36 @@ const tuitionSchema = new mongoose.Schema({
     enum: ['open', 'closed', 'ongoing', 'completed'],
     default: 'open'
   },
+  
+  // 🆕 ADMIN APPROVAL SYSTEM
+  approvalStatus: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: 'pending'
+  },
+  
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  
+  approvedAt: {
+    type: Date
+  },
+  
+  rejectionReason: {
+    type: String
+  },
+  
+  rejectedAt: {
+    type: Date
+  },
+  
   views: {
     type: Number,
     default: 0
   },
-  postedAt: {  // Added postedAt to match your backend usage
+  postedAt: {
     type: Date,
     default: Date.now
   },
@@ -102,7 +127,7 @@ const tuitionSchema = new mongoose.Schema({
     type: String
   }
 }, {
-  timestamps: true  // This will add createdAt and updatedAt
+  timestamps: true
 });
 
 // Virtual fields for compatibility
@@ -129,5 +154,6 @@ tuitionSchema.index({ status: 1, postedAt: -1 });
 tuitionSchema.index({ studentId: 1, status: 1 });
 tuitionSchema.index({ subject: 1, tutoring_type: 1 });
 tuitionSchema.index({ grade: 1, location: 1 });
+tuitionSchema.index({ approvalStatus: 1, createdAt: -1 }); // 🆕 Approval index
 
 module.exports = mongoose.model('Tuition', tuitionSchema);

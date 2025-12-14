@@ -1,12 +1,11 @@
 const Tuition = require('../models/Tuition');
 const mongoose = require('mongoose');
 
-// Get latest tuitions for home page
+// Get latest APPROVED tuitions for home page
 exports.getLatestTuitions = async (req, res) => {
   try {
     console.log('📍 getLatestTuitions called');
     
-    // Check DB connection
     if (mongoose.connection.readyState !== 1) {
       return res.status(503).json({
         status: 'error',
@@ -14,17 +13,20 @@ exports.getLatestTuitions = async (req, res) => {
       });
     }
 
-    const tuitions = await Tuition.find({ status: 'open' })
+    // 🆕 Only show APPROVED tuitions
+    const tuitions = await Tuition.find({ 
+      status: 'open',
+      approvalStatus: 'approved' 
+    })
       .populate('studentId', 'name location')
       .sort({ postedAt: -1, createdAt: -1 })
       .limit(6)
       .lean();
 
-    // ✅ FIXED: Use consistent response format
     res.json({
       status: 'success',
       count: tuitions.length,
-      data: tuitions // Changed from 'tuitions' to 'data'
+      data: tuitions
     });
   } catch (error) {
     console.error('❌ Error in getLatestTuitions:', error);
@@ -36,7 +38,7 @@ exports.getLatestTuitions = async (req, res) => {
   }
 };
 
-// Get filter options
+// Get filter options (only approved tuitions)
 exports.getFilterOptions = async (req, res) => {
   try {
     console.log('📍 getFilterOptions called');
@@ -48,14 +50,30 @@ exports.getFilterOptions = async (req, res) => {
       });
     }
 
-    const subjects = await Tuition.distinct('subject', { status: 'open' });
-    const grades = await Tuition.distinct('grade', { status: 'open' });
-    const tutoringTypes = await Tuition.distinct('tutoring_type', { status: 'open' });
-    const mediums = await Tuition.distinct('preferred_medium', { status: 'open' });
-    const locations = await Tuition.distinct('location', { status: 'open' });
+    // 🆕 Only show approved tuitions in filters
+    const subjects = await Tuition.distinct('subject', { 
+      status: 'open', 
+      approvalStatus: 'approved' 
+    });
+    const grades = await Tuition.distinct('grade', { 
+      status: 'open', 
+      approvalStatus: 'approved' 
+    });
+    const tutoringTypes = await Tuition.distinct('tutoring_type', { 
+      status: 'open', 
+      approvalStatus: 'approved' 
+    });
+    const mediums = await Tuition.distinct('preferred_medium', { 
+      status: 'open', 
+      approvalStatus: 'approved' 
+    });
+    const locations = await Tuition.distinct('location', { 
+      status: 'open', 
+      approvalStatus: 'approved' 
+    });
 
     const salaryStats = await Tuition.aggregate([
-      { $match: { status: 'open' } },
+      { $match: { status: 'open', approvalStatus: 'approved' } },
       {
         $group: {
           _id: null,
@@ -65,7 +83,6 @@ exports.getFilterOptions = async (req, res) => {
       }
     ]);
 
-    // ✅ FIXED: Use consistent response format
     res.json({
       status: 'success',
       data: {
@@ -87,7 +104,7 @@ exports.getFilterOptions = async (req, res) => {
   }
 };
 
-// Get all tuitions with filters
+// Get all APPROVED tuitions with filters (for public)
 exports.getAllTuitions = async (req, res) => {
   try {
     console.log('📍 getAllTuitions called', req.query);
@@ -114,7 +131,11 @@ exports.getAllTuitions = async (req, res) => {
       status = 'open'
     } = req.query;
 
-    const query = { status };
+    // 🆕 Only show approved tuitions to public
+    const query = { 
+      status,
+      approvalStatus: 'approved'
+    };
 
     if (search) {
       query.$or = [
@@ -154,14 +175,13 @@ exports.getAllTuitions = async (req, res) => {
 
     const total = await Tuition.countDocuments(query);
 
-    // ✅ FIXED: Use consistent response format
     res.json({
       status: 'success',
       count: tuitions.length,
       total,
       page: Number(page),
       pages: Math.ceil(total / limit),
-      data: tuitions // Changed from 'tuitions' to 'data'
+      data: tuitions
     });
   } catch (error) {
     console.error('❌ Error in getAllTuitions:', error);
@@ -188,6 +208,7 @@ exports.getTuitionById = async (req, res) => {
     const tuition = await Tuition.findById(req.params.id)
       .populate('studentId', 'name email phone location')
       .populate('approvedTutor', 'name email phone subjects rating')
+      .populate('approvedBy', 'name email') // 🆕 Show who approved
       .lean();
 
     if (!tuition) {
@@ -197,13 +218,12 @@ exports.getTuitionById = async (req, res) => {
       });
     }
 
-    // Increment view count (without blocking response)
+    // Increment view count
     Tuition.findByIdAndUpdate(req.params.id, { $inc: { views: 1 } }).exec();
 
-    // ✅ FIXED: Use consistent response format
     res.json({
       status: 'success',
-      data: tuition // Changed from 'tuition' to 'data'
+      data: tuition
     });
   } catch (error) {
     console.error('❌ Error in getTuitionById:', error);
@@ -215,7 +235,7 @@ exports.getTuitionById = async (req, res) => {
   }
 };
 
-// Create new tuition
+// Create new tuition (status = pending by default)
 exports.createTuition = async (req, res) => {
   try {
     console.log('📍 createTuition called');
@@ -232,15 +252,15 @@ exports.createTuition = async (req, res) => {
       studentId: req.user?.userId,
       postedAt: new Date(),
       status: 'open',
+      approvalStatus: 'pending', // 🆕 Set to pending
       views: 0
     };
 
     const tuition = await Tuition.create(tuitionData);
 
-    // ✅ FIXED: Use consistent response format
     res.status(201).json({
       status: 'success',
-      message: 'Tuition posted successfully',
+      message: 'Tuition posted successfully. Awaiting admin approval.',
       data: tuition
     });
   } catch (error) {
@@ -253,7 +273,7 @@ exports.createTuition = async (req, res) => {
   }
 };
 
-// Get user's own tuitions
+// Get user's own tuitions (shows all statuses for student)
 exports.getMyTuitions = async (req, res) => {
   try {
     console.log('📍 getMyTuitions called');
@@ -267,10 +287,10 @@ exports.getMyTuitions = async (req, res) => {
 
     const tuitions = await Tuition.find({ studentId: req.user.userId })
       .populate('approvedTutor', 'name phone subjects')
+      .populate('approvedBy', 'name') // 🆕 Show who approved/rejected
       .sort({ createdAt: -1 })
       .lean();
 
-    // ✅ FIXED: Use consistent response format
     res.json({
       status: 'success',
       count: tuitions.length,
@@ -314,13 +334,18 @@ exports.updateTuition = async (req, res) => {
       });
     }
 
-    Object.assign(tuition, req.body);
+    // 🆕 If student edits, reset to pending
+    const updateData = {
+      ...req.body,
+      approvalStatus: 'pending'
+    };
+
+    Object.assign(tuition, updateData);
     await tuition.save();
 
-    // ✅ FIXED: Use consistent response format
     res.json({
       status: 'success',
-      message: 'Tuition updated successfully',
+      message: 'Tuition updated successfully. Awaiting admin approval.',
       data: tuition
     });
   } catch (error) {
@@ -363,7 +388,6 @@ exports.deleteTuition = async (req, res) => {
 
     await tuition.deleteOne();
 
-    // ✅ FIXED: Use consistent response format
     res.json({
       status: 'success',
       message: 'Tuition deleted successfully'
@@ -373,6 +397,191 @@ exports.deleteTuition = async (req, res) => {
     res.status(500).json({
       status: 'error',
       message: 'Failed to delete tuition',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// ========================================
+// 🆕 ADMIN-ONLY FUNCTIONS
+// ========================================
+
+// Get all pending tuitions (admin only)
+exports.getPendingTuitions = async (req, res) => {
+  try {
+    console.log('📍 getPendingTuitions called (ADMIN)');
+    
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        status: 'error',
+        message: 'Database not connected'
+      });
+    }
+
+    const tuitions = await Tuition.find({ approvalStatus: 'pending' })
+      .populate('studentId', 'name email phone location')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json({
+      status: 'success',
+      count: tuitions.length,
+      data: tuitions
+    });
+  } catch (error) {
+    console.error('❌ Error in getPendingTuitions:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch pending tuitions',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get all tuitions (admin - all statuses)
+exports.getAllTuitionsAdmin = async (req, res) => {
+  try {
+    console.log('📍 getAllTuitionsAdmin called');
+    
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        status: 'error',
+        message: 'Database not connected'
+      });
+    }
+
+    const { 
+      page = 1, 
+      limit = 10, 
+      approvalStatus,
+      status
+    } = req.query;
+
+    const query = {};
+    if (approvalStatus) query.approvalStatus = approvalStatus;
+    if (status) query.status = status;
+
+    const skip = (page - 1) * limit;
+
+    const tuitions = await Tuition.find(query)
+      .populate('studentId', 'name email phone')
+      .populate('approvedBy', 'name email')
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
+      .skip(skip)
+      .lean();
+
+    const total = await Tuition.countDocuments(query);
+
+    res.json({
+      status: 'success',
+      count: tuitions.length,
+      total,
+      page: Number(page),
+      pages: Math.ceil(total / limit),
+      data: tuitions
+    });
+  } catch (error) {
+    console.error('❌ Error in getAllTuitionsAdmin:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch tuitions',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Approve tuition (admin only)
+exports.approveTuition = async (req, res) => {
+  try {
+    console.log('📍 approveTuition called:', req.params.id);
+    
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        status: 'error',
+        message: 'Database not connected'
+      });
+    }
+
+    const tuition = await Tuition.findById(req.params.id);
+
+    if (!tuition) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Tuition not found'
+      });
+    }
+
+    tuition.approvalStatus = 'approved';
+    tuition.approvedBy = req.user.userId;
+    tuition.approvedAt = new Date();
+    tuition.rejectionReason = undefined; // Clear rejection reason
+    tuition.rejectedAt = undefined;
+
+    await tuition.save();
+
+    res.json({
+      status: 'success',
+      message: 'Tuition approved successfully',
+      data: tuition
+    });
+  } catch (error) {
+    console.error('❌ Error in approveTuition:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to approve tuition',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Reject tuition (admin only)
+exports.rejectTuition = async (req, res) => {
+  try {
+    console.log('📍 rejectTuition called:', req.params.id);
+    
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        status: 'error',
+        message: 'Database not connected'
+      });
+    }
+
+    const { reason } = req.body;
+
+    if (!reason) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Rejection reason is required'
+      });
+    }
+
+    const tuition = await Tuition.findById(req.params.id);
+
+    if (!tuition) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Tuition not found'
+      });
+    }
+
+    tuition.approvalStatus = 'rejected';
+    tuition.rejectionReason = reason;
+    tuition.rejectedAt = new Date();
+    tuition.approvedBy = req.user.userId;
+
+    await tuition.save();
+
+    res.json({
+      status: 'success',
+      message: 'Tuition rejected',
+      data: tuition
+    });
+  } catch (error) {
+    console.error('❌ Error in rejectTuition:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to reject tuition',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
