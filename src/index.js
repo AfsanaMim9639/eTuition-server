@@ -148,8 +148,9 @@ app.get('/', async (req, res) => {
       student: '/api/student',
       conversations: '/api/conversations',
       messages: '/api/messages',
-      notifications: '/api/notifications', // ✅ NEW
-      reviews: '/api/reviews'
+      notifications: '/api/notifications',
+      reviews: '/api/reviews',
+      schedules: '/api/schedules' // ✅ ADDED
     }
   });
 });
@@ -171,7 +172,7 @@ const loadRoutes = () => {
 
   console.log('\n📦 ============ ROUTE LOADING DIAGNOSTICS ============\n');
   
-  const dirsToCheck = ['routes', 'controllers', 'models', 'middleware', 'socket', 'utils']; // ✅ Added utils
+  const dirsToCheck = ['routes', 'controllers', 'models', 'middleware', 'socket', 'utils'];
   console.log('📁 Checking directory structure:');
   
   dirsToCheck.forEach(dir => {
@@ -201,9 +202,9 @@ const loadRoutes = () => {
     { path: '/api/student', file: './routes/studentRoutes', name: 'Student' },
     { path: '/api/conversations', file: './routes/conversationRoutes', name: 'Conversations' },
     { path: '/api/messages', file: './routes/messageRoutes', name: 'Messages' },
-    { path: '/api/notifications', file: './routes/notificationRoutes', name: 'Notifications' }, // ✅ NEW
-    { path: '/api/reviews', file: './routes/reviewRoutes', name: 'Reviews' } // ✅ NEW
- 
+    { path: '/api/notifications', file: './routes/notificationRoutes', name: 'Notifications' },
+    { path: '/api/reviews', file: './routes/reviewRoutes', name: 'Reviews' },
+    { path: '/api/schedules', file: './routes/scheduleRoutes', name: 'Schedules' }
   ];
 
   routeConfigs.forEach(config => {
@@ -345,6 +346,7 @@ if (require.main === module) {
 ║   MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected ✅' : 'Disconnected ❌'} ║
 ║   Socket.io: Enabled ✅                ║
 ║   Notifications: Enabled ✅            ║
+║   Schedules: Enabled ✅                ║
 ╚═══════════════════════════════════════╝
     `);
   });
