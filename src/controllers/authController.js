@@ -166,86 +166,7 @@ exports.register = async (req, res) => {
   }
 };
 
-// Login user
-exports.login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    console.log('📥 Login request for:', email);
-
-    // Validate input
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide email and password'
-      });
-    }
-
-    // Find user (need to include password for comparison)
-    const user = await User.findOne({ email }).select('+password');
-    
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password'
-      });
-    }
-
-    // Check if it's a social login account
-    if (user.isSocialLogin) {
-      return res.status(400).json({
-        success: false,
-        message: 'This account uses social login. Please login with Google/Facebook.'
-      });
-    }
-
-    // Check account status
-    if (user.status !== 'active') {
-      return res.status(403).json({
-        success: false,
-        message: `Your account has been ${user.status}. Please contact support.`
-      });
-    }
-
-    // Check active field for tutors
-    if (user.role === 'tutor' && user.active === false) {
-      return res.status(403).json({
-        success: false,
-        message: 'Your tutor account has been deactivated'
-      });
-    }
-
-    // Verify password
-    const isPasswordValid = await user.comparePassword(password);
-    if (!isPasswordValid) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password'
-      });
-    }
-
-    console.log('✅ Login successful:', email);
-
-    // Generate token
-    const token = generateToken(user);
-
-    // Remove password from response
-    user.password = undefined;
-
-    res.json({
-      success: true,
-      message: 'Login successful',
-      token,
-      user
-    });
-  } catch (error) {
-    console.error('❌ Login error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Login failed'
-    });
-  }
-};// Login user - UPDATED VERSION
+//Login
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -271,7 +192,7 @@ exports.login = async (req, res) => {
       });
     }
 
-    console.log('✅ User found:', { email: user.email, role: user.role, id: user._id });
+    console.log('✅ User found:', { email: user.email, role: user.role, status: user.status });
 
     // Check if it's a social login account
     if (user.isSocialLogin) {
@@ -281,12 +202,22 @@ exports.login = async (req, res) => {
       });
     }
 
-    // Check account status
-    if (user.status !== 'active') {
-      console.log('❌ Account not active:', user.status);
+    // ⭐ UPDATED: Allow login but show warning message based on status
+    let statusMessage = null;
+    
+    if (user.status === 'pending') {
+      statusMessage = 'Your account is pending approval. Some features may be limited.';
+      console.log('⚠️ Pending user logging in:', email);
+    } else if (user.status === 'rejected') {
+      statusMessage = 'Your account registration was rejected. Please contact support.';
+      console.log('⚠️ Rejected user logging in:', email);
+    } else if (user.status === 'suspended') {
+      statusMessage = 'Your account has been suspended. Some features are restricted.';
+      console.log('⚠️ Suspended user logging in:', email);
+    } else if (user.status === 'blocked') {
       return res.status(403).json({
         success: false,
-        message: `Your account has been ${user.status}. Please contact support.`
+        message: 'Your account has been blocked. Please contact support.'
       });
     }
 
@@ -324,7 +255,7 @@ exports.login = async (req, res) => {
       profileImage: user.profileImage,
       address: user.address,
       location: user.location,
-      status: user.status,
+      status: user.status, // ⭐ Include status in response
       active: user.active,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
@@ -344,16 +275,15 @@ exports.login = async (req, res) => {
       userResponse.hourlyRate = user.hourlyRate;
       userResponse.totalEarnings = user.totalEarnings;
     }
-    // Admin doesn't need extra fields
 
-    console.log('✅ Login successful for:', email, 'Role:', user.role);
-    console.log('📤 Sending response with user:', userResponse);
+    console.log('✅ Login successful for:', email, 'Role:', user.role, 'Status:', user.status);
 
     res.json({
       success: true,
       message: 'Login successful',
       token,
-      user: userResponse
+      user: userResponse,
+      statusWarning: statusMessage // ⭐ Send warning message if exists
     });
   } catch (error) {
     console.error('❌ Login error:', error);

@@ -97,11 +97,21 @@ const userSchema = new mongoose.Schema({
     default: true
   },
   
-  // Additional fields
+  // ⭐ UPDATED: Status field with pending, approved, rejected
   status: {
     type: String,
-    enum: ['active', 'suspended', 'blocked'],
-    default: 'active'
+    enum: ['pending', 'approved', 'rejected', 'suspended', 'blocked'],
+    default: 'pending' // ⭐ Default is now 'pending'
+  },
+  
+  // ⭐ NEW: Approval details
+  approvalDetails: {
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    approvedAt: Date,
+    rejectionReason: String
   }
 }, {
   timestamps: true

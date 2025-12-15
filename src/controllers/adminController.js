@@ -198,84 +198,47 @@ exports.updateUserRole = async (req, res) => {
   }
 };
 
-// Update User Status
-exports.updateUserStatus = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { status } = req.body;
 
-    console.log(`🔄 Updating user ${userId} status to: ${status}`);
-
-    // Validate status
-    const validStatuses = ['active', 'suspended', 'blocked'];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid status. Must be: active, suspended, or blocked'
-      });
-    }
-
-    // Update user
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { status },
-      { new: true, runValidators: true }
-    ).select('-password');
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    console.log(`✅ User status updated successfully`);
-
-    res.status(200).json({
-      success: true,
-      message: 'User status updated successfully',
-      user
-    });
-
-  } catch (error) {
-    console.error('❌ Error updating user status:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update user status',
-      error: error.message
-    });
-  }
-};
-
-// Delete User
+// 1. Delete User - UPDATED (Remove admin protection)
 exports.deleteUser = async (req, res) => {
   try {
     const { userId } = req.params;
 
     console.log(`🗑️ Deleting user: ${userId}`);
+    console.log(`🔑 Request by admin: ${req.user.userId}`);
+
+    // Validate ObjectId
+    if (!userId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format'
+      });
+    }
 
     // Check if user exists
     const user = await User.findById(userId);
     
     if (!user) {
+      console.log(`❌ User not found: ${userId}`);
       return res.status(404).json({
         success: false,
         message: 'User not found'
       });
     }
 
-    // Prevent deleting admin accounts (optional safety check)
-    if (user.role === 'admin') {
+    // ⭐ REMOVED: Admin protection (can now delete admins)
+    // Prevent deleting yourself
+    if (user._id.toString() === req.user.userId.toString()) {
       return res.status(403).json({
         success: false,
-        message: 'Cannot delete admin accounts'
+        message: 'You cannot delete your own account'
       });
     }
 
     // Delete user
     await User.findByIdAndDelete(userId);
 
-    console.log(`✅ User deleted successfully`);
+    console.log(`✅ User deleted successfully: ${userId}`);
 
     res.status(200).json({
       success: true,
@@ -287,6 +250,71 @@ exports.deleteUser = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete user',
+      error: error.message
+    });
+  }
+};
+
+// 2. Update User Status - UPDATED VERSION
+exports.updateUserStatus = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { status, rejectionReason } = req.body;
+
+    console.log(`🔄 Updating user ${userId} status to: ${status}`);
+
+    // ⭐ UPDATED: New valid statuses
+    const validStatuses = ['pending', 'approved', 'rejected', 'suspended', 'blocked'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be: pending, approved, rejected, suspended, or blocked'
+      });
+    }
+
+    // Build update object
+    const updateData = { status };
+
+    // ⭐ If approving, add approval details
+    if (status === 'approved') {
+      updateData.approvalDetails = {
+        approvedBy: req.user.userId, // Current admin's ID
+        approvedAt: new Date()
+      };
+    }
+
+    // ⭐ If rejecting, add rejection reason
+    if (status === 'rejected' && rejectionReason) {
+      updateData['approvalDetails.rejectionReason'] = rejectionReason;
+    }
+
+    // Update user
+    const user = await User.findByIdAndUpdate(
+      userId,
+      updateData,
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    console.log(`✅ User status updated successfully to: ${status}`);
+
+    res.status(200).json({
+      success: true,
+      message: `User status updated to ${status} successfully`,
+      user
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating user status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update user status',
       error: error.message
     });
   }
