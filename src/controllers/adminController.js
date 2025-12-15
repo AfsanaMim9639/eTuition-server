@@ -1,4 +1,4 @@
-// controllers/adminController.js
+// controllers/adminController.js - FIXED VERSION
 
 const User = require('../models/User');
 const Tuition = require('../models/Tuition');
@@ -10,23 +10,20 @@ exports.getDashboardStats = async (req, res) => {
   try {
     console.log('📊 Fetching admin dashboard stats...');
 
-    // User statistics
     const totalUsers = await User.countDocuments();
     const totalStudents = await User.countDocuments({ role: 'student' });
     const totalTutors = await User.countDocuments({ role: 'tutor' });
     const totalAdmins = await User.countDocuments({ role: 'admin' });
 
-    // Tuition statistics
     const totalTuitions = await Tuition.countDocuments();
-    const pendingTuitions = await Tuition.countDocuments({ status: 'pending' });
-    const approvedTuitions = await Tuition.countDocuments({ status: 'approved' });
+    const pendingTuitions = await Tuition.countDocuments({ approvalStatus: 'pending' });
+    const approvedTuitions = await Tuition.countDocuments({ approvalStatus: 'approved' });
+    const rejectedTuitions = await Tuition.countDocuments({ approvalStatus: 'rejected' });
     const ongoingTuitions = await Tuition.countDocuments({ status: 'ongoing' });
     const completedTuitions = await Tuition.countDocuments({ status: 'completed' });
 
-    // Application statistics
     const totalApplications = await Application.countDocuments();
 
-    // Payment statistics
     const paymentStats = await Payment.aggregate([
       {
         $group: {
@@ -53,6 +50,7 @@ exports.getDashboardStats = async (req, res) => {
         total: totalTuitions,
         pending: pendingTuitions,
         approved: approvedTuitions,
+        rejected: rejectedTuitions,
         ongoing: ongoingTuitions,
         completed: completedTuitions
       },
@@ -94,7 +92,6 @@ exports.getAllUsers = async (req, res) => {
       search 
     } = req.query;
 
-    // Build query
     const query = {};
     
     if (role) {
@@ -113,12 +110,10 @@ exports.getAllUsers = async (req, res) => {
       ];
     }
 
-    // Calculate pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const totalUsers = await User.countDocuments(query);
     const totalPages = Math.ceil(totalUsers / parseInt(limit));
 
-    // Fetch users
     const users = await User.find(query)
       .select('-password')
       .sort({ createdAt: -1 })
@@ -157,7 +152,6 @@ exports.updateUserRole = async (req, res) => {
 
     console.log(`🔄 Updating user ${userId} role to: ${role}`);
 
-    // Validate role
     const validRoles = ['student', 'tutor', 'admin'];
     if (!validRoles.includes(role)) {
       return res.status(400).json({
@@ -166,7 +160,6 @@ exports.updateUserRole = async (req, res) => {
       });
     }
 
-    // Update user
     const user = await User.findByIdAndUpdate(
       userId,
       { role },
@@ -197,14 +190,14 @@ exports.updateUserRole = async (req, res) => {
     });
   }
 };
-// Get Single User Details (for viewing)
+
+// Get Single User Details
 exports.getUserById = async (req, res) => {
   try {
     const { userId } = req.params;
 
     console.log(`👤 Fetching user details: ${userId}`);
 
-    // Validate ObjectId
     if (!userId.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({
         success: false,
@@ -212,7 +205,6 @@ exports.getUserById = async (req, res) => {
       });
     }
 
-    // Fetch user with all details
     const user = await User.findById(userId)
       .select('-password')
       .lean();
@@ -241,7 +233,7 @@ exports.getUserById = async (req, res) => {
   }
 };
 
-// Update User Information (for editing)
+// Update User Information
 exports.updateUserInfo = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -249,7 +241,6 @@ exports.updateUserInfo = async (req, res) => {
 
     console.log(`📝 Updating user info: ${userId}`, updateData);
 
-    // Validate ObjectId
     if (!userId.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({
         success: false,
@@ -257,7 +248,6 @@ exports.updateUserInfo = async (req, res) => {
       });
     }
 
-    // Check if user exists
     const user = await User.findById(userId);
     
     if (!user) {
@@ -267,7 +257,6 @@ exports.updateUserInfo = async (req, res) => {
       });
     }
 
-    // Fields that can be updated
     const allowedFields = [
       'name',
       'email',
@@ -275,10 +264,8 @@ exports.updateUserInfo = async (req, res) => {
       'address',
       'location',
       'profileImage',
-      // Student fields
       'grade',
       'institution',
-      // Tutor fields
       'subjects',
       'experience',
       'education',
@@ -286,7 +273,6 @@ exports.updateUserInfo = async (req, res) => {
       'hourlyRate'
     ];
 
-    // Build update object with only allowed fields
     const updates = {};
     allowedFields.forEach(field => {
       if (updateData[field] !== undefined) {
@@ -294,7 +280,6 @@ exports.updateUserInfo = async (req, res) => {
       }
     });
 
-    // Check if email is being changed and if it's already taken
     if (updates.email && updates.email !== user.email) {
       const emailExists = await User.findOne({ email: updates.email });
       if (emailExists) {
@@ -305,7 +290,6 @@ exports.updateUserInfo = async (req, res) => {
       }
     }
 
-    // Update user
     const updatedUser = await User.findByIdAndUpdate(
       userId,
       { $set: updates },
@@ -330,7 +314,6 @@ exports.updateUserInfo = async (req, res) => {
   } catch (error) {
     console.error('❌ Error updating user info:', error);
     
-    // Handle validation errors
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(err => err.message);
       return res.status(400).json({
@@ -347,8 +330,7 @@ exports.updateUserInfo = async (req, res) => {
   }
 };
 
-
-// 1. Delete User - UPDATED (Remove admin protection)
+// Delete User
 exports.deleteUser = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -356,7 +338,6 @@ exports.deleteUser = async (req, res) => {
     console.log(`🗑️ Deleting user: ${userId}`);
     console.log(`🔑 Request by admin: ${req.user.userId}`);
 
-    // Validate ObjectId
     if (!userId.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({
         success: false,
@@ -364,7 +345,6 @@ exports.deleteUser = async (req, res) => {
       });
     }
 
-    // Check if user exists
     const user = await User.findById(userId);
     
     if (!user) {
@@ -375,8 +355,6 @@ exports.deleteUser = async (req, res) => {
       });
     }
 
-    // ⭐ REMOVED: Admin protection (can now delete admins)
-    // Prevent deleting yourself
     if (user._id.toString() === req.user.userId.toString()) {
       return res.status(403).json({
         success: false,
@@ -384,7 +362,6 @@ exports.deleteUser = async (req, res) => {
       });
     }
 
-    // Delete user
     await User.findByIdAndDelete(userId);
 
     console.log(`✅ User deleted successfully: ${userId}`);
@@ -404,7 +381,7 @@ exports.deleteUser = async (req, res) => {
   }
 };
 
-// 2. Update User Status - UPDATED VERSION
+// Update User Status
 exports.updateUserStatus = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -412,7 +389,6 @@ exports.updateUserStatus = async (req, res) => {
 
     console.log(`🔄 Updating user ${userId} status to: ${status}`);
 
-    // ⭐ UPDATED: New valid statuses
     const validStatuses = ['pending', 'approved', 'rejected', 'suspended', 'blocked'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
@@ -421,23 +397,19 @@ exports.updateUserStatus = async (req, res) => {
       });
     }
 
-    // Build update object
     const updateData = { status };
 
-    // ⭐ If approving, add approval details
     if (status === 'approved') {
       updateData.approvalDetails = {
-        approvedBy: req.user.userId, // Current admin's ID
+        approvedBy: req.user.userId,
         approvedAt: new Date()
       };
     }
 
-    // ⭐ If rejecting, add rejection reason
     if (status === 'rejected' && rejectionReason) {
       updateData['approvalDetails.rejectionReason'] = rejectionReason;
     }
 
-    // Update user
     const user = await User.findByIdAndUpdate(
       userId,
       updateData,
@@ -469,7 +441,11 @@ exports.updateUserStatus = async (req, res) => {
   }
 };
 
-// Get All Tuitions (Admin)
+// ============================================
+// TUITION MANAGEMENT - FIXED
+// ============================================
+
+// Get All Tuitions (Admin) - FIXED
 exports.getAllTuitionsAdmin = async (req, res) => {
   try {
     console.log('📚 Fetching all tuitions for admin:', req.query);
@@ -477,7 +453,12 @@ exports.getAllTuitionsAdmin = async (req, res) => {
     const { 
       page = 1, 
       limit = 20, 
-      status 
+      status,
+      approvalStatus,
+      subject,
+      tutoring_type,
+      grade,
+      search
     } = req.query;
 
     // Build query
@@ -487,15 +468,40 @@ exports.getAllTuitionsAdmin = async (req, res) => {
       query.status = status;
     }
 
+    if (approvalStatus) {
+      query.approvalStatus = approvalStatus;
+    }
+
+    if (subject) {
+      query.subject = subject;
+    }
+
+    if (tutoring_type) {
+      query.tutoring_type = tutoring_type;
+    }
+
+    if (grade) {
+      query.grade = grade;
+    }
+
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { location: { $regex: search, $options: 'i' } },
+        { subject: { $regex: search, $options: 'i' } }
+      ];
+    }
+
     // Calculate pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const totalTuitions = await Tuition.countDocuments(query);
     const totalPages = Math.ceil(totalTuitions / parseInt(limit));
 
-    // Fetch tuitions with student info
+    // ✅ FIXED: Use 'studentId' instead of 'student'
     const tuitions = await Tuition.find(query)
-      .populate('student', 'name email phone')
-      .populate('applications')
+      .populate('studentId', 'name email phone')
+      .populate('approvedTutor', 'name email phone')
+      .populate('approvedBy', 'name email')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(parseInt(limit))
@@ -524,13 +530,13 @@ exports.getAllTuitionsAdmin = async (req, res) => {
   }
 };
 
+// Get Tuition By ID - FIXED
 exports.getTuitionById = async (req, res) => {
   try {
     const { tuitionId } = req.params;
 
     console.log(`📚 Fetching tuition details: ${tuitionId}`);
 
-    // Validate ObjectId
     if (!tuitionId.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({
         success: false,
@@ -538,7 +544,7 @@ exports.getTuitionById = async (req, res) => {
       });
     }
 
-    // Fetch tuition with all details
+    // ✅ FIXED: Use 'studentId' instead of 'student'
     const tuition = await Tuition.findById(tuitionId)
       .populate('studentId', 'name email phone')
       .populate('approvedTutor', 'name email phone subjects')
@@ -569,14 +575,13 @@ exports.getTuitionById = async (req, res) => {
   }
 };
 
-// ⭐ Approve Tuition
+// Approve Tuition
 exports.approveTuition = async (req, res) => {
   try {
     const { tuitionId } = req.params;
 
     console.log(`✅ Approving tuition: ${tuitionId}`);
 
-    // Validate ObjectId
     if (!tuitionId.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({
         success: false,
@@ -584,7 +589,6 @@ exports.approveTuition = async (req, res) => {
       });
     }
 
-    // Update tuition
     const tuition = await Tuition.findByIdAndUpdate(
       tuitionId,
       {
@@ -620,7 +624,7 @@ exports.approveTuition = async (req, res) => {
   }
 };
 
-// ⭐ Reject Tuition
+// Reject Tuition
 exports.rejectTuition = async (req, res) => {
   try {
     const { tuitionId } = req.params;
@@ -628,7 +632,6 @@ exports.rejectTuition = async (req, res) => {
 
     console.log(`❌ Rejecting tuition: ${tuitionId}`);
 
-    // Validate ObjectId
     if (!tuitionId.match(/^[0-9a-fA-F]{24}$/)) {
       return res.status(400).json({
         success: false,
@@ -636,7 +639,6 @@ exports.rejectTuition = async (req, res) => {
       });
     }
 
-    // Update tuition
     const tuition = await Tuition.findByIdAndUpdate(
       tuitionId,
       {
@@ -680,21 +682,19 @@ exports.updateTuitionStatus = async (req, res) => {
 
     console.log(`🔄 Updating tuition ${tuitionId} status to: ${status}`);
 
-    // Validate status
-    const validStatuses = ['pending', 'approved', 'ongoing', 'completed', 'rejected'];
+    const validStatuses = ['open', 'closed', 'ongoing', 'completed'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid status. Must be: pending, approved, ongoing, completed, or rejected'
+        message: 'Invalid status. Must be: open, closed, ongoing, or completed'
       });
     }
 
-    // Update tuition
     const tuition = await Tuition.findByIdAndUpdate(
       tuitionId,
       { status },
       { new: true, runValidators: true }
-    ).populate('student', 'name email');
+    ).populate('studentId', 'name email');
 
     if (!tuition) {
       return res.status(404).json({
@@ -730,7 +730,7 @@ exports.getAllPayments = async (req, res) => {
       .populate('user', 'name email')
       .populate('tuition', 'subject class')
       .sort({ createdAt: -1 })
-      .limit(100) // Limit to last 100 payments
+      .limit(100)
       .lean();
 
     console.log(`✅ Found ${payments.length} payments`);
