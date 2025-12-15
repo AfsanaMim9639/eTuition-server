@@ -6,10 +6,13 @@ const Application = require('../models/Application');
 const Payment = require('../models/Payment');
 
 // Get Dashboard Statistics
+// controllers/adminController.js - UPDATED getDashboardStats
+
 exports.getDashboardStats = async (req, res) => {
   try {
     console.log('📊 Fetching admin dashboard stats...');
 
+    // Existing stats
     const totalUsers = await User.countDocuments();
     const totalStudents = await User.countDocuments({ role: 'student' });
     const totalTutors = await User.countDocuments({ role: 'tutor' });
@@ -39,6 +42,151 @@ exports.getDashboardStats = async (req, res) => {
       }
     ]);
 
+    // ✅ NEW: Monthly Revenue Chart Data (Last 12 months)
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+
+    const monthlyRevenue = await Payment.aggregate([
+      {
+        $match: {
+          status: 'completed',
+          createdAt: { $gte: twelveMonthsAgo }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' }
+          },
+          revenue: { $sum: '$amount' },
+          platformFee: { $sum: '$platformFee' },
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { '_id.year': 1, '_id.month': 1 }
+      },
+      {
+        $project: {
+          _id: 0,
+          month: {
+            $concat: [
+              { $toString: '$_id.year' },
+              '-',
+              {
+                $cond: [
+                  { $lt: ['$_id.month', 10] },
+                  { $concat: ['0', { $toString: '$_id.month' }] },
+                  { $toString: '$_id.month' }
+                ]
+              }
+            ]
+          },
+          revenue: 1,
+          platformFee: 1,
+          count: 1
+        }
+      }
+    ]);
+
+    // ✅ NEW: Payment Methods Distribution
+    const paymentMethodStats = await Payment.aggregate([
+      {
+        $match: { status: 'completed' }
+      },
+      {
+        $group: {
+          _id: '$paymentMethod',
+          count: { $sum: 1 },
+          totalAmount: { $sum: '$amount' }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          method: '$_id',
+          count: 1,
+          amount: '$totalAmount'
+        }
+      }
+    ]);
+
+    // ✅ NEW: User Growth (Last 6 months)
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+
+    const userGrowth = await User.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: sixMonthsAgo }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' },
+            role: '$role'
+          },
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { '_id.year': 1, '_id.month': 1 }
+      },
+      {
+        $group: {
+          _id: {
+            year: '$_id.year',
+            month: '$_id.month'
+          },
+          students: {
+            $sum: {
+              $cond: [{ $eq: ['$_id.role', 'student'] }, '$count', 0]
+            }
+          },
+          tutors: {
+            $sum: {
+              $cond: [{ $eq: ['$_id.role', 'tutor'] }, '$count', 0]
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          month: {
+            $concat: [
+              { $toString: '$_id.year' },
+              '-',
+              {
+                $cond: [
+                  { $lt: ['$_id.month', 10] },
+                  { $concat: ['0', { $toString: '$_id.month' }] },
+                  { $toString: '$_id.month' }
+                ]
+              }
+            ]
+          },
+          students: 1,
+          tutors: 1
+        }
+      },
+      {
+        $sort: { month: 1 }
+      }
+    ]);
+
+    // ✅ NEW: Tuitions Status Distribution
+    const tuitionsStatusChart = [
+      { status: 'Pending', count: pendingTuitions, color: '#FFA500' },
+      { status: 'Approved', count: approvedTuitions, color: '#39FF14' },
+      { status: 'Ongoing', count: ongoingTuitions, color: '#00F0FF' },
+      { status: 'Completed', count: completedTuitions, color: '#FF10F0' },
+      { status: 'Rejected', count: rejectedTuitions, color: '#FF0000' }
+    ];
+
     const stats = {
       users: {
         total: totalUsers,
@@ -59,6 +207,13 @@ exports.getDashboardStats = async (req, res) => {
         total: paymentStats[0]?.totalPayments || 0,
         revenue: paymentStats[0]?.totalRevenue || 0,
         pending: paymentStats[0]?.pendingAmount || 0
+      },
+      // ✅ NEW: Charts Data
+      charts: {
+        monthlyRevenue,
+        paymentMethods: paymentMethodStats,
+        userGrowth,
+        tuitionsStatus: tuitionsStatusChart
       }
     };
 
