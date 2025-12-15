@@ -524,6 +524,154 @@ exports.getAllTuitionsAdmin = async (req, res) => {
   }
 };
 
+exports.getTuitionById = async (req, res) => {
+  try {
+    const { tuitionId } = req.params;
+
+    console.log(`📚 Fetching tuition details: ${tuitionId}`);
+
+    // Validate ObjectId
+    if (!tuitionId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tuition ID format'
+      });
+    }
+
+    // Fetch tuition with all details
+    const tuition = await Tuition.findById(tuitionId)
+      .populate('studentId', 'name email phone')
+      .populate('approvedTutor', 'name email phone subjects')
+      .populate('approvedBy', 'name email')
+      .lean();
+
+    if (!tuition) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tuition not found'
+      });
+    }
+
+    console.log(`✅ Tuition details fetched: ${tuition.title}`);
+
+    res.status(200).json({
+      success: true,
+      tuition
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching tuition details:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch tuition details',
+      error: error.message
+    });
+  }
+};
+
+// ⭐ Approve Tuition
+exports.approveTuition = async (req, res) => {
+  try {
+    const { tuitionId } = req.params;
+
+    console.log(`✅ Approving tuition: ${tuitionId}`);
+
+    // Validate ObjectId
+    if (!tuitionId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tuition ID format'
+      });
+    }
+
+    // Update tuition
+    const tuition = await Tuition.findByIdAndUpdate(
+      tuitionId,
+      {
+        approvalStatus: 'approved',
+        approvedBy: req.user.userId,
+        approvedAt: new Date()
+      },
+      { new: true, runValidators: true }
+    ).populate('studentId', 'name email phone');
+
+    if (!tuition) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tuition not found'
+      });
+    }
+
+    console.log(`✅ Tuition approved successfully: ${tuition.title}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Tuition approved successfully',
+      tuition
+    });
+
+  } catch (error) {
+    console.error('❌ Error approving tuition:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to approve tuition',
+      error: error.message
+    });
+  }
+};
+
+// ⭐ Reject Tuition
+exports.rejectTuition = async (req, res) => {
+  try {
+    const { tuitionId } = req.params;
+    const { rejectionReason } = req.body;
+
+    console.log(`❌ Rejecting tuition: ${tuitionId}`);
+
+    // Validate ObjectId
+    if (!tuitionId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid tuition ID format'
+      });
+    }
+
+    // Update tuition
+    const tuition = await Tuition.findByIdAndUpdate(
+      tuitionId,
+      {
+        approvalStatus: 'rejected',
+        rejectionReason: rejectionReason || 'No reason provided',
+        rejectedAt: new Date()
+      },
+      { new: true, runValidators: true }
+    ).populate('studentId', 'name email phone');
+
+    if (!tuition) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tuition not found'
+      });
+    }
+
+    console.log(`✅ Tuition rejected: ${tuition.title}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Tuition rejected successfully',
+      tuition
+    });
+
+  } catch (error) {
+    console.error('❌ Error rejecting tuition:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reject tuition',
+      error: error.message
+    });
+  }
+};
+
 // Update Tuition Status
 exports.updateTuitionStatus = async (req, res) => {
   try {

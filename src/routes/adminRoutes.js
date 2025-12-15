@@ -20,7 +20,10 @@ router.delete('/users/:userId', adminController.deleteUser);
 
 // Tuition management
 router.get('/tuitions', adminController.getAllTuitionsAdmin);
+router.get('/tuitions/:tuitionId', adminController.getTuitionById);  // ⭐ NEW
 router.patch('/tuitions/:tuitionId/status', adminController.updateTuitionStatus);
+router.patch('/tuitions/:tuitionId/approve', adminController.approveTuition);  // ⭐ NEW
+router.patch('/tuitions/:tuitionId/reject', adminController.rejectTuition);  // ⭐ NEW
 
 // Payment management
 router.get('/payments', adminController.getAllPayments);
