@@ -721,23 +721,227 @@ exports.updateTuitionStatus = async (req, res) => {
   }
 };
 
-// Get All Payments (Admin)
+// Get Financial Reports
+exports.getFinancialReports = async (req, res) => {
+  try {
+    console.log('💰 Fetching financial reports...');
+
+    // Get all completed payments
+    const completedPayments = await Payment.find({ status: 'completed' })
+      .populate('student', 'name email')
+      .populate('tutor', 'name email')
+      .populate('tuition', 'title subject')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    // Calculate total earnings
+    const totalEarnings = completedPayments.reduce((sum, payment) => {
+      return sum + (payment.platformFee || 0);
+    }, 0);
+
+    // Calculate total transaction amount
+    const totalTransactionAmount = completedPayments.reduce((sum, payment) => {
+      return sum + (payment.amount || 0);
+    }, 0);
+
+    // Calculate tutor earnings (after platform fee)
+    const totalTutorEarnings = completedPayments.reduce((sum, payment) => {
+      return sum + (payment.tutorReceives || 0);
+    }, 0);
+
+    // Get payment statistics by status
+    const paymentsByStatus = await Payment.aggregate([
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+          totalAmount: { $sum: '$amount' }
+        }
+      }
+    ]);
+
+    // Get monthly earnings (last 12 months)
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+
+    const monthlyEarnings = await Payment.aggregate([
+      {
+        $match: {
+          status: 'completed',
+          createdAt: { $gte: twelveMonthsAgo }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' }
+          },
+          totalAmount: { $sum: '$amount' },
+          platformFee: { $sum: '$platformFee' },
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { '_id.year': 1, '_id.month': 1 }
+      }
+    ]);
+
+    // Get payment method distribution
+    const paymentMethodStats = await Payment.aggregate([
+      {
+        $match: { status: 'completed' }
+      },
+      {
+        $group: {
+          _id: '$paymentMethod',
+          count: { $sum: 1 },
+          totalAmount: { $sum: '$amount' }
+        }
+      }
+    ]);
+
+    // Get recent transactions (last 50)
+    const recentTransactions = await Payment.find()
+      .populate('student', 'name email')
+      .populate('tutor', 'name email')
+      .populate('tuition', 'title subject')
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
+
+    // Format transactions for frontend
+    const formattedTransactions = recentTransactions.map(payment => ({
+      _id: payment._id,
+      transactionId: payment.transactionId,
+      studentName: payment.student?.name || 'Unknown',
+      studentEmail: payment.student?.email || '',
+      tutorName: payment.tutor?.name || 'Unknown',
+      tutorEmail: payment.tutor?.email || '',
+      amount: payment.amount,
+      platformFee: payment.platformFee,
+      tutorReceives: payment.tutorReceives,
+      paymentMethod: payment.paymentMethod,
+      status: payment.status,
+      createdAt: payment.createdAt,
+      completedAt: payment.completedAt,
+      tuitionTitle: payment.tuition?.title || 'N/A',
+      tuitionSubject: payment.tuition?.subject || 'N/A'
+    }));
+
+    const report = {
+      summary: {
+        totalEarnings, // Platform earnings (fees)
+        totalTransactionAmount, // Total amount transacted
+        totalTutorEarnings, // Amount paid to tutors
+        totalCompletedTransactions: completedPayments.length,
+        averageTransactionAmount: completedPayments.length > 0 
+          ? totalTransactionAmount / completedPayments.length 
+          : 0
+      },
+      paymentsByStatus,
+      monthlyEarnings,
+      paymentMethodStats,
+      recentTransactions: formattedTransactions
+    };
+
+    console.log('✅ Financial reports fetched successfully');
+    console.log('💵 Total Platform Earnings:', totalEarnings);
+    console.log('📊 Total Transactions:', completedPayments.length);
+
+    res.status(200).json({
+      success: true,
+      report
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching financial reports:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch financial reports',
+      error: error.message
+    });
+  }
+};
+
+// Get All Payments (Admin) - UPDATED VERSION
 exports.getAllPayments = async (req, res) => {
   try {
     console.log('💰 Fetching all payments for admin');
 
-    const payments = await Payment.find()
-      .populate('user', 'name email')
-      .populate('tuition', 'subject class')
+    const { 
+      page = 1, 
+      limit = 50,
+      status,
+      paymentMethod,
+      startDate,
+      endDate
+    } = req.query;
+
+    // Build query
+    const query = {};
+    
+    if (status) {
+      query.status = status;
+    }
+    
+    if (paymentMethod) {
+      query.paymentMethod = paymentMethod;
+    }
+    
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) {
+        query.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        query.createdAt.$lte = new Date(endDate);
+      }
+    }
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const totalPayments = await Payment.countDocuments(query);
+    const totalPages = Math.ceil(totalPayments / parseInt(limit));
+
+    const payments = await Payment.find(query)
+      .populate('student', 'name email')
+      .populate('tutor', 'name email')
+      .populate('tuition', 'title subject')
       .sort({ createdAt: -1 })
-      .limit(100)
+      .skip(skip)
+      .limit(parseInt(limit))
       .lean();
 
-    console.log(`✅ Found ${payments.length} payments`);
+    // Format payments
+    const formattedPayments = payments.map(payment => ({
+      _id: payment._id,
+      transactionId: payment.transactionId,
+      studentName: payment.student?.name || 'Unknown',
+      studentEmail: payment.student?.email || '',
+      tutorName: payment.tutor?.name || 'Unknown',
+      tutorEmail: payment.tutor?.email || '',
+      amount: payment.amount,
+      platformFee: payment.platformFee,
+      tutorReceives: payment.tutorReceives,
+      paymentMethod: payment.paymentMethod,
+      status: payment.status,
+      createdAt: payment.createdAt,
+      completedAt: payment.completedAt,
+      tuitionTitle: payment.tuition?.title || 'N/A'
+    }));
+
+    console.log(`✅ Found ${payments.length} payments (Page ${page}/${totalPages})`);
 
     res.status(200).json({
       success: true,
-      payments
+      payments: formattedPayments,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages,
+        totalPayments,
+        paymentsPerPage: parseInt(limit)
+      }
     });
 
   } catch (error) {
