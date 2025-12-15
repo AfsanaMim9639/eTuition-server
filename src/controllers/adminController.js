@@ -197,6 +197,155 @@ exports.updateUserRole = async (req, res) => {
     });
   }
 };
+// Get Single User Details (for viewing)
+exports.getUserById = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    console.log(`👤 Fetching user details: ${userId}`);
+
+    // Validate ObjectId
+    if (!userId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format'
+      });
+    }
+
+    // Fetch user with all details
+    const user = await User.findById(userId)
+      .select('-password')
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    console.log(`✅ User details fetched: ${user.email}`);
+
+    res.status(200).json({
+      success: true,
+      user
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching user details:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user details',
+      error: error.message
+    });
+  }
+};
+
+// Update User Information (for editing)
+exports.updateUserInfo = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const updateData = req.body;
+
+    console.log(`📝 Updating user info: ${userId}`, updateData);
+
+    // Validate ObjectId
+    if (!userId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID format'
+      });
+    }
+
+    // Check if user exists
+    const user = await User.findById(userId);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Fields that can be updated
+    const allowedFields = [
+      'name',
+      'email',
+      'phone',
+      'address',
+      'location',
+      'profileImage',
+      // Student fields
+      'grade',
+      'institution',
+      // Tutor fields
+      'subjects',
+      'experience',
+      'education',
+      'bio',
+      'hourlyRate'
+    ];
+
+    // Build update object with only allowed fields
+    const updates = {};
+    allowedFields.forEach(field => {
+      if (updateData[field] !== undefined) {
+        updates[field] = updateData[field];
+      }
+    });
+
+    // Check if email is being changed and if it's already taken
+    if (updates.email && updates.email !== user.email) {
+      const emailExists = await User.findOne({ email: updates.email });
+      if (emailExists) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email already exists'
+        });
+      }
+    }
+
+    // Update user
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { $set: updates },
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    console.log(`✅ User info updated successfully: ${updatedUser.email}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'User information updated successfully',
+      user: updatedUser
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating user info:', error);
+    
+    // Handle validation errors
+    if (error.name === 'ValidationError') {
+      const messages = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        success: false,
+        message: messages.join(', ')
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update user information',
+      error: error.message
+    });
+  }
+};
 
 
 // 1. Delete User - UPDATED (Remove admin protection)

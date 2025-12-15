@@ -23,7 +23,7 @@ exports.register = async (req, res) => {
       password, 
       role, 
       phone,
-      address, // ✅ Added address
+      address,
       // Student fields
       grade,
       institution,
@@ -54,9 +54,9 @@ exports.register = async (req, res) => {
       password,
       role: role || 'student',
       phone,
-      address, // ✅ Added
+      address,
       active: true,
-      status: 'active' // ✅ Set status to active by default
+      status: 'active'
     };
 
     // Add student-specific fields
@@ -85,7 +85,6 @@ exports.register = async (req, res) => {
       // Handle education - can be string or array
       if (education) {
         if (typeof education === 'string') {
-          // If string, convert to single object array
           userData.education = [{
             degree: education,
             institution: '',
@@ -101,7 +100,7 @@ exports.register = async (req, res) => {
       userData.location = location;
       userData.bio = bio || '';
       userData.hourlyRate = hourlyRate ? Number(hourlyRate) : 0;
-      userData.rating = 0; // ✅ Start with 0, will increase with reviews
+      userData.rating = 0;
       userData.totalReviews = 0;
     }
 
@@ -166,7 +165,7 @@ exports.register = async (req, res) => {
   }
 };
 
-//Login
+// Login
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -202,32 +201,37 @@ exports.login = async (req, res) => {
       });
     }
 
-    // ⭐ UPDATED: Allow login but show warning message based on status
+    // ⭐ ADMIN BYPASS - Admins don't need status checks
     let statusMessage = null;
     
-    if (user.status === 'pending') {
-      statusMessage = 'Your account is pending approval. Some features may be limited.';
-      console.log('⚠️ Pending user logging in:', email);
-    } else if (user.status === 'rejected') {
-      statusMessage = 'Your account registration was rejected. Please contact support.';
-      console.log('⚠️ Rejected user logging in:', email);
-    } else if (user.status === 'suspended') {
-      statusMessage = 'Your account has been suspended. Some features are restricted.';
-      console.log('⚠️ Suspended user logging in:', email);
-    } else if (user.status === 'blocked') {
-      return res.status(403).json({
-        success: false,
-        message: 'Your account has been blocked. Please contact support.'
-      });
-    }
+    if (user.role !== 'admin') {
+      // Status checks only for non-admin users
+      if (user.status === 'pending') {
+        statusMessage = 'Your account is pending approval. Some features may be limited.';
+        console.log('⚠️ Pending user logging in:', email);
+      } else if (user.status === 'rejected') {
+        statusMessage = 'Your account registration was rejected. Please contact support.';
+        console.log('⚠️ Rejected user logging in:', email);
+      } else if (user.status === 'suspended') {
+        statusMessage = 'Your account has been suspended. Some features are restricted.';
+        console.log('⚠️ Suspended user logging in:', email);
+      } else if (user.status === 'blocked') {
+        return res.status(403).json({
+          success: false,
+          message: 'Your account has been blocked. Please contact support.'
+        });
+      }
 
-    // Check active field for tutors (admins don't need this check)
-    if (user.role === 'tutor' && user.active === false) {
-      console.log('❌ Tutor account deactivated');
-      return res.status(403).json({
-        success: false,
-        message: 'Your tutor account has been deactivated'
-      });
+      // Check active field for tutors
+      if (user.role === 'tutor' && user.active === false) {
+        console.log('❌ Tutor account deactivated');
+        return res.status(403).json({
+          success: false,
+          message: 'Your tutor account has been deactivated'
+        });
+      }
+    } else {
+      console.log('👑 Admin login - bypassing all status checks');
     }
 
     // Verify password
@@ -255,7 +259,7 @@ exports.login = async (req, res) => {
       profileImage: user.profileImage,
       address: user.address,
       location: user.location,
-      status: user.status, // ⭐ Include status in response
+      status: user.status,
       active: user.active,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
@@ -276,14 +280,14 @@ exports.login = async (req, res) => {
       userResponse.totalEarnings = user.totalEarnings;
     }
 
-    console.log('✅ Login successful for:', email, 'Role:', user.role, 'Status:', user.status);
+    console.log('✅ Login successful for:', email, 'Role:', user.role);
 
     res.json({
       success: true,
       message: 'Login successful',
       token,
       user: userResponse,
-      statusWarning: statusMessage // ⭐ Send warning message if exists
+      statusWarning: user.role === 'admin' ? null : statusMessage
     });
   } catch (error) {
     console.error('❌ Login error:', error);
@@ -321,20 +325,23 @@ exports.socialLogin = async (req, res) => {
         });
       }
 
-      // Check account status
-      if (user.status !== 'active') {
-        return res.status(403).json({
-          success: false,
-          message: `Your account has been ${user.status}. Please contact support.`
-        });
-      }
+      // ⭐ ADMIN BYPASS for social login too
+      if (user.role !== 'admin') {
+        // Check account status for non-admins
+        if (user.status !== 'active') {
+          return res.status(403).json({
+            success: false,
+            message: `Your account has been ${user.status}. Please contact support.`
+          });
+        }
 
-      // Check active field
-      if (user.active === false) {
-        return res.status(403).json({
-          success: false,
-          message: 'Your account has been deactivated'
-        });
+        // Check active field
+        if (user.active === false) {
+          return res.status(403).json({
+            success: false,
+            message: 'Your account has been deactivated'
+          });
+        }
       }
 
       console.log('✅ Existing social user found:', email);
@@ -383,12 +390,17 @@ exports.getCurrentUser = async (req, res) => {
       });
     }
 
-    // Check if user is still active
-    if (user.status !== 'active' || user.active === false) {
-      return res.status(403).json({
-        success: false,
-        message: 'Your account has been deactivated'
-      });
+    // ⭐ ADMIN BYPASS - Admins always active
+    if (user.role !== 'admin') {
+      // Check if user is still active (only for non-admins)
+      if (user.status !== 'active' || user.active === false) {
+        return res.status(403).json({
+          success: false,
+          message: 'Your account has been deactivated'
+        });
+      }
+    } else {
+      console.log('👑 Admin user - bypassing status check');
     }
 
     res.json({
@@ -407,9 +419,6 @@ exports.getCurrentUser = async (req, res) => {
 // Logout (optional - mainly for clearing client-side token)
 exports.logout = async (req, res) => {
   try {
-    // In JWT, logout is typically handled client-side by removing the token
-    // But you can add server-side token blacklisting if needed
-    
     res.json({
       success: true,
       message: 'Logged out successfully'

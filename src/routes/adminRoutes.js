@@ -12,15 +12,17 @@ router.get('/stats', adminController.getDashboardStats);
 
 // User management
 router.get('/users', adminController.getAllUsers);
+router.get('/users/:userId', adminController.getUserById); // ⭐ ADD THIS
 router.patch('/users/:userId/role', adminController.updateUserRole);
 router.patch('/users/:userId/status', adminController.updateUserStatus);
+router.patch('/users/:userId/info', adminController.updateUserInfo); // ⭐ ADD THIS
 router.delete('/users/:userId', adminController.deleteUser);
 
 // Tuition management
 router.get('/tuitions', adminController.getAllTuitionsAdmin);
 router.patch('/tuitions/:tuitionId/status', adminController.updateTuitionStatus);
 
-// Payment management (⭐ Added this)
+// Payment management
 router.get('/payments', adminController.getAllPayments);
 
 module.exports = router;
