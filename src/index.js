@@ -22,13 +22,13 @@ const io = new Server(server, {
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS']
-  }
+  },
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
-// Make io available to routes
 app.set('io', io);
 
-// Initialize socket handler
 const socketHandler = require('./socket/socketHandler');
 socketHandler(io);
 
@@ -48,95 +48,146 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Request logging and DB connection check
-app.use(async (req, res, next) => {
+// ✅ IMPROVED: Lightweight request logging (no DB check in middleware)
+app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  
-  if (mongoose.connection.readyState !== 1) {
-    console.log('⚠️  DB not connected, attempting to connect...');
-    await connectDB();
-  }
-  
   next();
 });
 
-// MongoDB Connection with caching for serverless
+// ✅ IMPROVED: MongoDB Connection with better timeout handling
 let isConnected = false;
+let connectionAttempts = 0;
+const MAX_RETRY_ATTEMPTS = 3;
 
 const connectDB = async () => {
-  if (isConnected && mongoose.connection.readyState === 1) {
-    console.log('♻️  Reusing existing MongoDB connection');
-    return;
+  // Check if already connected
+  if (mongoose.connection.readyState === 1) {
+    isConnected = true;
+    return true;
+  }
+
+  // Prevent multiple simultaneous connection attempts
+  if (mongoose.connection.readyState === 2) {
+    console.log('⏳ Connection already in progress...');
+    // Wait for connection to complete
+    await new Promise(resolve => {
+      const checkConnection = setInterval(() => {
+        if (mongoose.connection.readyState === 1) {
+          clearInterval(checkConnection);
+          resolve();
+        }
+      }, 100);
+      
+      // Timeout after 10 seconds
+      setTimeout(() => {
+        clearInterval(checkConnection);
+        resolve();
+      }, 10000);
+    });
+    return mongoose.connection.readyState === 1;
+  }
+
+  if (!process.env.MONGODB_URI) {
+    console.error('❌ MONGODB_URI is not defined!');
+    return false;
   }
 
   try {
-    console.log('🔍 MongoDB Connection Debug Info:');
-    console.log('- MONGODB_URI exists:', !!process.env.MONGODB_URI);
+    connectionAttempts++;
+    console.log(`🔄 MongoDB connection attempt ${connectionAttempts}/${MAX_RETRY_ATTEMPTS}...`);
     
-    if (!process.env.MONGODB_URI) {
-      console.error('❌ CRITICAL: MONGODB_URI is not defined!');
-      return;
-    }
-
-    console.log('🔄 Attempting MongoDB connection...');
-    
-    if (mongoose.connection.readyState === 2) {
-      console.log('⚠️  Detected stuck connection, disconnecting...');
-      await mongoose.disconnect();
-    }
-    
-    const conn = await mongoose.connect(process.env.MONGODB_URI, {
-      serverSelectionTimeoutMS: 30000,
-      socketTimeoutMS: 75000,
-      connectTimeoutMS: 30000,
-      maxPoolSize: 10,
-      minPoolSize: 2,
+    // ✅ FIXED: Reduced timeouts for faster failure detection
+    await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 10000, // ✅ Reduced from 30s to 10s
+      socketTimeoutMS: 45000,           // ✅ Reduced from 75s to 45s
+      connectTimeoutMS: 10000,          // ✅ Reduced from 30s to 10s
+      maxPoolSize: 5,                   // ✅ Reduced from 10 to 5
+      minPoolSize: 1,                   // ✅ Reduced from 2 to 1
+      maxIdleTimeMS: 10000,             // ✅ Close idle connections after 10s
       family: 4,
       retryWrites: true,
       retryReads: true,
     });
     
     isConnected = true;
+    connectionAttempts = 0;
     console.log('✅ MongoDB Connected Successfully!');
     console.log('🗄️  Database:', mongoose.connection.name);
+    return true;
     
   } catch (error) {
     isConnected = false;
-    console.error('❌ MongoDB Connection Failed:', error.message);
+    console.error(`❌ MongoDB Connection Failed (attempt ${connectionAttempts}):`, error.message);
+    
+    // ✅ Auto-retry logic
+    if (connectionAttempts < MAX_RETRY_ATTEMPTS) {
+      console.log(`⏳ Retrying in 2 seconds...`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      return connectDB();
+    }
+    
+    return false;
   }
 };
 
-// Handle connection events
+// ✅ IMPROVED: Connection event handlers with auto-reconnect
 mongoose.connection.on('connected', () => {
   isConnected = true;
+  connectionAttempts = 0;
   console.log('🟢 Mongoose connected');
 });
 
 mongoose.connection.on('error', (err) => {
   isConnected = false;
-  console.error('🔴 Mongoose error:', err);
+  console.error('🔴 Mongoose error:', err.message);
 });
 
 mongoose.connection.on('disconnected', () => {
   isConnected = false;
   console.log('🟡 Mongoose disconnected');
+  
+  // ✅ Auto-reconnect after disconnect
+  if (connectionAttempts < MAX_RETRY_ATTEMPTS) {
+    console.log('🔄 Attempting to reconnect...');
+    setTimeout(() => connectDB(), 5000);
+  }
 });
 
-// Connect to MongoDB
+// ✅ Handle process termination gracefully
+process.on('SIGINT', async () => {
+  try {
+    await mongoose.connection.close();
+    console.log('✅ MongoDB connection closed through app termination');
+    process.exit(0);
+  } catch (err) {
+    console.error('❌ Error closing MongoDB connection:', err);
+    process.exit(1);
+  }
+});
+
+// Initial connection
 connectDB();
 
-// Root routes
+// ✅ IMPROVED: Health check with connection status
 app.get('/', async (req, res) => {
-  if (mongoose.connection.readyState !== 1) {
-    await connectDB();
-  }
+  const dbStatus = mongoose.connection.readyState;
+  const dbStateMap = {
+    0: 'disconnected',
+    1: 'connected',
+    2: 'connecting',
+    3: 'disconnecting'
+  };
   
   res.json({
-    status: 'success',
+    status: dbStatus === 1 ? 'success' : 'degraded',
     message: '✅ Tuition Management API is running!',
     version: '1.0.0',
     timestamp: new Date().toISOString(),
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    mongodb: {
+      status: dbStateMap[dbStatus],
+      readyState: dbStatus,
+      database: mongoose.connection.name || 'not connected'
+    },
     socketio: '✅ enabled',
     endpoints: {
       auth: '/api/auth',
@@ -150,17 +201,23 @@ app.get('/', async (req, res) => {
       messages: '/api/messages',
       notifications: '/api/notifications',
       reviews: '/api/reviews',
-      schedules: '/api/schedules' // ✅ ADDED
+      schedules: '/api/schedules'
     }
   });
 });
 
 app.get('/api/health', (req, res) => {
+  const dbStatus = mongoose.connection.readyState;
   res.json({
-    status: 'healthy',
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    status: dbStatus === 1 ? 'healthy' : 'unhealthy',
+    mongodb: {
+      connected: dbStatus === 1,
+      readyState: dbStatus,
+      name: mongoose.connection.name
+    },
     socketio: 'enabled',
     uptime: process.uptime(),
+    memory: process.memoryUsage(),
     timestamp: new Date().toISOString()
   });
 });
@@ -170,27 +227,7 @@ const loadRoutes = () => {
   const loadedRoutes = [];
   const failedRoutes = [];
 
-  console.log('\n📦 ============ ROUTE LOADING DIAGNOSTICS ============\n');
-  
-  const dirsToCheck = ['routes', 'controllers', 'models', 'middleware', 'socket', 'utils'];
-  console.log('📁 Checking directory structure:');
-  
-  dirsToCheck.forEach(dir => {
-    const dirPath = path.join(__dirname, dir);
-    const exists = fs.existsSync(dirPath);
-    console.log(`   ${exists ? '✅' : '❌'} ${dir}/ ${exists ? 'exists' : 'MISSING'}`);
-    
-    if (exists) {
-      try {
-        const files = fs.readdirSync(dirPath);
-        console.log(`      Files: ${files.join(', ') || 'empty'}`);
-      } catch (err) {
-        console.log(`      Error reading: ${err.message}`);
-      }
-    }
-  });
-
-  console.log('\n🔧 Attempting to load routes:\n');
+  console.log('\n📦 ============ ROUTE LOADING ============\n');
   
   const routeConfigs = [
     { path: '/api/auth', file: './routes/authRoutes', name: 'Auth' },
@@ -209,67 +246,72 @@ const loadRoutes = () => {
 
   routeConfigs.forEach(config => {
     try {
-      console.log(`\n🔍 Loading ${config.name}:`);
-      console.log(`   Path: ${config.path}`);
-      console.log(`   File: ${config.file}`);
-      
       const filePath = path.join(__dirname, config.file + '.js');
-      const fileExists = fs.existsSync(filePath);
-      console.log(`   File exists: ${fileExists ? '✅' : '❌'}`);
       
-      if (!fileExists) {
+      if (!fs.existsSync(filePath)) {
         throw new Error(`File not found: ${filePath}`);
       }
       
       const routeHandler = require(config.file);
-      console.log(`   ✓ Required successfully`);
-      console.log(`   ✓ Export type: ${typeof routeHandler}`);
-      
       app.use(config.path, routeHandler);
-      console.log(`   ✅ Mounted at ${config.path}`);
       
       loadedRoutes.push(config.name);
+      console.log(`✅ ${config.name} loaded at ${config.path}`);
       
     } catch (error) {
-      console.error(`   ❌ FAILED: ${error.message}`);
-      console.error(`   Stack trace:`);
-      console.error(error.stack);
+      console.error(`❌ ${config.name} failed: ${error.message}`);
       
       failedRoutes.push({ 
         name: config.name, 
         path: config.path,
-        error: error.message,
-        stack: error.stack
+        error: error.message
       });
       
-      app.use(config.path, (req, res) => {
+      // ✅ Fallback route with proper DB check
+      app.use(config.path, async (req, res) => {
+        // Check DB connection for this specific route
+        if (mongoose.connection.readyState !== 1) {
+          return res.status(503).json({
+            status: 'error',
+            message: 'Database connection unavailable',
+            route: config.name,
+            timestamp: new Date().toISOString()
+          });
+        }
+        
         res.status(503).json({
           status: 'error',
           message: `${config.name} routes are temporarily unavailable`,
-          detail: process.env.NODE_ENV === 'development' ? error.message : 'Service unavailable',
-          errorType: error.name,
           timestamp: new Date().toISOString()
         });
       });
     }
   });
  
-  if (loadedRoutes.length > 0) {
-    console.log(`\n✅ Successfully loaded: ${loadedRoutes.join(', ')}`);
-  }
-  
+  console.log(`\n✅ Loaded: ${loadedRoutes.length} routes`);
   if (failedRoutes.length > 0) {
-    console.log(`\n❌ Failed to load: ${failedRoutes.map(r => r.name).join(', ')}`);
+    console.log(`❌ Failed: ${failedRoutes.length} routes`);
   }
-  console.log('='.repeat(60) + '\n');
+  console.log('='.repeat(50) + '\n');
   
   return { loadedRoutes, failedRoutes };
 };
 
-// Load all routes
 const routeStatus = loadRoutes();
 
-// Enhanced route status endpoint
+// ✅ API-level DB check middleware (only for API routes)
+app.use('/api', (req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({
+      status: 'error',
+      message: 'Database connection temporarily unavailable',
+      code: 'DB_DISCONNECTED',
+      timestamp: new Date().toISOString()
+    });
+  }
+  next();
+});
+
 app.get('/api/routes-status', (req, res) => {
   res.json({
     status: 'success',
@@ -283,7 +325,6 @@ app.get('/api/routes-status', (req, res) => {
   });
 });
 
-// Debug endpoint
 app.get('/api/debug', (req, res) => {
   res.json({
     status: 'success',
@@ -306,6 +347,7 @@ app.get('/api/debug', (req, res) => {
       }))
     },
     uptime: process.uptime(),
+    memory: process.memoryUsage(),
     timestamp: new Date().toISOString()
   });
 });
@@ -334,19 +376,15 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Export for Vercel
 module.exports = app;
 
-// Local development server
 if (require.main === module) {
   server.listen(PORT, () => {
     console.log(`
 ╔═══════════════════════════════════════╗
 ║   🚀 Server Running on ${PORT}        ║
-║   MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected ✅' : 'Disconnected ❌'} ║
+║   MongoDB: ${mongoose.connection.readyState === 1 ? 'Connected ✅' : 'Connecting ⏳'} ║
 ║   Socket.io: Enabled ✅                ║
-║   Notifications: Enabled ✅            ║
-║   Schedules: Enabled ✅                ║
 ╚═══════════════════════════════════════╝
     `);
   });

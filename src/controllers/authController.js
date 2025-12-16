@@ -166,17 +166,29 @@ exports.register = async (req, res) => {
 };
 
 // Login
+// AuthContext.jsx - Login function এ এই changes করুন:
+
+// Login
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, selectedRole } = req.body;
 
     console.log('📥 Login request for:', email);
+    console.log('🎭 Selected role from frontend:', selectedRole);
 
     // Validate input
     if (!email || !password) {
       return res.status(400).json({
         success: false,
         message: 'Please provide email and password'
+      });
+    }
+
+    // ✅ Validate selected role
+    if (!selectedRole) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please select your role'
       });
     }
 
@@ -192,6 +204,31 @@ exports.login = async (req, res) => {
     }
 
     console.log('✅ User found:', { email: user.email, role: user.role, status: user.status });
+
+    // ✅ CHECK ROLE MISMATCH FIRST - Before password check
+    if (user.role !== selectedRole) {
+      console.log(`❌ Role mismatch! DB: ${user.role}, Selected: ${selectedRole}`);
+      return res.status(403).json({
+        success: false,
+        message: `Role mismatch! You are registered as a ${user.role.toUpperCase()}, not a ${selectedRole.toUpperCase()}. Please select the correct role.`,
+        registeredRole: user.role,
+        selectedRole: selectedRole
+      });
+    }
+
+    console.log('✅ Role validation passed:', user.role);
+
+    // NOW verify password (after role check)
+    const isPasswordValid = await user.comparePassword(password);
+    if (!isPasswordValid) {
+      console.log('❌ Invalid password for:', email);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid email or password'
+      });
+    }
+
+    console.log('✅ Password verified for:', email);
 
     // Check if it's a social login account
     if (user.isSocialLogin) {
@@ -233,18 +270,6 @@ exports.login = async (req, res) => {
     } else {
       console.log('👑 Admin login - bypassing all status checks');
     }
-
-    // Verify password
-    const isPasswordValid = await user.comparePassword(password);
-    if (!isPasswordValid) {
-      console.log('❌ Invalid password for:', email);
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password'
-      });
-    }
-
-    console.log('✅ Password verified for:', email);
 
     // Generate token
     const token = generateToken(user);
@@ -303,7 +328,7 @@ exports.socialLogin = async (req, res) => {
   try {
     const { name, email, profileImage, role } = req.body;
 
-    console.log('📥 Social login request for:', email);
+    console.log('📥 Social login request for:', email, 'with role:', role);
 
     // Validate input
     if (!email || !name) {
@@ -313,10 +338,29 @@ exports.socialLogin = async (req, res) => {
       });
     }
 
+    // ✅ Validate role selection for social login
+    if (!role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please select your role'
+      });
+    }
+
     // Check if user exists
     let user = await User.findOne({ email });
 
     if (user) {
+      // ✅ CHECK ROLE MISMATCH for existing users
+      if (user.role !== role) {
+        console.log(`❌ Social login role mismatch! DB: ${user.role}, Selected: ${role}`);
+        return res.status(403).json({
+          success: false,
+          message: `Role mismatch! You are registered as a ${user.role.toUpperCase()}, not a ${role.toUpperCase()}. Please select the correct role.`,
+          registeredRole: user.role,
+          selectedRole: role
+        });
+      }
+
       // Check if it's a regular account trying to social login
       if (!user.isSocialLogin) {
         return res.status(400).json({
@@ -344,10 +388,10 @@ exports.socialLogin = async (req, res) => {
         }
       }
 
-      console.log('✅ Existing social user found:', email);
+      console.log('✅ Existing social user found with correct role:', email);
     } else {
       // Create new user with social login
-      console.log('📝 Creating new social login user:', email);
+      console.log('📝 Creating new social login user:', email, 'as', role);
       user = await User.create({
         name,
         email,
