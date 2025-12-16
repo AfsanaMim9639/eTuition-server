@@ -1,18 +1,28 @@
+// controllers/applicationController.js
+
 const Application = require('../models/Application');
 const Tuition = require('../models/Tuition');
 const User = require('../models/User');
-const { sendNotification } = require('../utils/notificationHelper'); // ✅ Using helper
 
-// Tutor applies to a tuition
+// ✅ Apply to Tuition (Tutor)
 exports.applyToTuition = async (req, res) => {
   try {
-    const { tuitionId, message, proposedRate } = req.body;
+    const { tuitionId, qualifications, experience, expectedSalary } = req.body;
     const tutorId = req.user.userId;
 
-    console.log('📝 Tutor applying:', tutorId, 'to tuition:', tuitionId);
+    console.log('📝 Application request:', { tuitionId, tutorId });
 
-    // Check if tuition exists and is open
-    const tuition = await Tuition.findById(tuitionId);
+    // Validate input
+    if (!tuitionId || !qualifications || !experience || !expectedSalary) {
+      return res.status(400).json({
+        success: false,
+        message: 'All fields are required'
+      });
+    }
+
+    // Check if tuition exists
+    const tuition = await Tuition.findById(tuitionId).populate('studentId', 'name email');
+    
     if (!tuition) {
       return res.status(404).json({
         success: false,
@@ -20,14 +30,15 @@ exports.applyToTuition = async (req, res) => {
       });
     }
 
-    if (tuition.status !== 'open') {
+    // Check if tuition is approved
+    if (tuition.approvalStatus !== 'approved') {
       return res.status(400).json({
         success: false,
-        message: 'This tuition is not available for applications'
+        message: 'This tuition is not approved yet'
       });
     }
 
-    // Check if tutor already applied
+    // Check if already applied
     const existingApplication = await Application.findOne({
       tuition: tuitionId,
       tutor: tutorId
@@ -36,89 +47,126 @@ exports.applyToTuition = async (req, res) => {
     if (existingApplication) {
       return res.status(400).json({
         success: false,
-        message: 'You have already applied to this tuition'
+        message: 'You have already applied to this tuition',
+        alreadyApplied: true
       });
     }
 
-    // Get tutor details for notification
-    const tutor = await User.findById(tutorId).select('name');
+    // Get tutor details
+    const tutor = await User.findById(tutorId).select('name email');
+
+    if (!tutor) {
+      return res.status(404).json({
+        success: false,
+        message: 'Tutor not found'
+      });
+    }
 
     // Create application
     const application = await Application.create({
       tuition: tuitionId,
       tutor: tutorId,
-      student: tuition.studentId,
-      message,
-      proposedRate,
-      appliedAt: new Date()
+      student: tuition.studentId._id,
+      name: tutor.name,
+      email: tutor.email,
+      qualifications,
+      experience,
+      expectedSalary,
+      status: 'pending'
     });
 
+    // Populate the application
     await application.populate([
-      { path: 'tutor', select: 'name email phone education subjects rating profileImage' },
-      { path: 'tuition', select: 'title subject grade location salary' }
+      { path: 'tutor', select: 'name email phone profileImage rating experience subjects education' },
+      { path: 'tuition', select: 'title subject grade location salary' },
+      { path: 'student', select: 'name email' }
     ]);
 
-    // ✅ Send notification using helper
-    await sendNotification(
-      tuition.studentId,
-      'applicationReceived',
-      tutor.name,
-      tuition.title,
-      tuitionId,
-      application._id,
-      tutorId
-    );
-
-    console.log('✅ Application submitted successfully');
+    console.log('✅ Application created successfully:', application._id);
 
     res.status(201).json({
       success: true,
       message: 'Application submitted successfully',
       application
     });
+
   } catch (error) {
-    console.error('❌ Apply error:', error);
+    console.error('❌ Apply to tuition error:', error);
     res.status(500).json({
       success: false,
-      message: error.message || 'Failed to submit application'
+      message: 'Failed to submit application',
+      error: error.message
     });
   }
 };
 
-// Get tutor's applications
+// ✅ Check if already applied
+exports.checkIfApplied = async (req, res) => {
+  try {
+    const { tuitionId } = req.params;
+    const tutorId = req.user.userId;
+
+    const application = await Application.findOne({
+      tuition: tuitionId,
+      tutor: tutorId
+    });
+
+    res.status(200).json({
+      success: true,
+      alreadyApplied: !!application,
+      application: application || null
+    });
+
+  } catch (error) {
+    console.error('❌ Check application error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to check application status'
+    });
+  }
+};
+
+// ✅ Get My Applications (Tutor)
 exports.getMyApplications = async (req, res) => {
   try {
-    console.log('📋 Fetching applications for tutor:', req.user.userId);
+    const tutorId = req.user.userId;
 
-    const applications = await Application.find({ tutor: req.user.userId })
-      .populate('tuition', 'title subject grade location salary status')
+    console.log('📋 Fetching applications for tutor:', tutorId);
+
+    const applications = await Application.find({ tutor: tutorId })
+      .populate('tuition', 'title subject grade location salary status approvalStatus')
       .populate('student', 'name email phone')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     console.log(`✅ Found ${applications.length} applications`);
 
-    res.json({
+    res.status(200).json({
       success: true,
       applications
     });
+
   } catch (error) {
-    console.error('❌ Get applications error:', error);
+    console.error('❌ Get my applications error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch applications'
+      message: 'Failed to fetch applications',
+      error: error.message
     });
   }
 };
 
-// Get applications for a specific tuition (Student)
+// ✅ Get Applications for Tuition (Student)
 exports.getApplicationsForTuition = async (req, res) => {
   try {
     const { tuitionId } = req.params;
+    const studentId = req.user.userId;
 
     console.log('📋 Fetching applications for tuition:', tuitionId);
 
-    // Verify tuition ownership
+    // Check if tuition belongs to student
     const tuition = await Tuition.findById(tuitionId);
+    
     if (!tuition) {
       return res.status(404).json({
         success: false,
@@ -126,7 +174,7 @@ exports.getApplicationsForTuition = async (req, res) => {
       });
     }
 
-    if (tuition.studentId.toString() !== req.user.userId && req.user.role !== 'admin') {
+    if (tuition.studentId.toString() !== studentId && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'You are not authorized to view these applications'
@@ -134,35 +182,47 @@ exports.getApplicationsForTuition = async (req, res) => {
     }
 
     const applications = await Application.find({ tuition: tuitionId })
-      .populate('tutor', 'name email phone education subjects rating profileImage experience location')
-      .sort({ createdAt: -1 });
+      .populate('tutor', 'name email phone profileImage rating experience subjects education bio address')
+      .sort({ createdAt: -1 })
+      .lean();
 
     console.log(`✅ Found ${applications.length} applications`);
 
-    res.json({
+    res.status(200).json({
       success: true,
       applications
     });
+
   } catch (error) {
-    console.error('❌ Get applications error:', error);
+    console.error('❌ Get tuition applications error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch applications'
+      message: 'Failed to fetch applications',
+      error: error.message
     });
   }
 };
 
-// Update application status (Accept/Reject)
+// ✅ Update Application Status (Student - Accept/Reject)
 exports.updateApplicationStatus = async (req, res) => {
   try {
     const { applicationId } = req.params;
     const { status, rejectionReason } = req.body;
+    const studentId = req.user.userId;
 
-    console.log('🔄 Updating application:', applicationId, 'to status:', status);
+    console.log('🔄 Updating application status:', { applicationId, status });
 
-    const application = await Application.findById(applicationId)
-      .populate('tuition')
-      .populate('tutor', 'name');
+    // Validate status
+    const validStatuses = ['accepted', 'rejected'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be: accepted or rejected'
+      });
+    }
+
+    // Find application
+    const application = await Application.findById(applicationId);
 
     if (!application) {
       return res.status(404).json({
@@ -171,93 +231,65 @@ exports.updateApplicationStatus = async (req, res) => {
       });
     }
 
-    // Verify ownership
-    if (application.student.toString() !== req.user.userId && req.user.role !== 'admin') {
+    // Check authorization
+    if (application.student.toString() !== studentId && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'You are not authorized to update this application'
       });
     }
 
-    // Reject application
-    if (status === 'rejected') {
-      application.status = 'rejected';
-      application.respondedAt = new Date();
-      if (rejectionReason) {
-        application.rejectionReason = rejectionReason;
-      }
-      await application.save();
-
-      // ✅ Send notification using helper
-      await sendNotification(
-        application.tutor._id,
-        'applicationRejected',
-        application.tuition.title,
-        application.tuition._id
-      );
-
-      console.log('✅ Application rejected');
-
-      return res.json({
-        success: true,
-        message: 'Application rejected',
-        application
+    // Check if already processed
+    if (application.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `Application is already ${application.status}`
       });
     }
 
-    // Accept application (if payment is done)
-    if (status === 'accepted') {
-      application.status = 'accepted';
-      application.respondedAt = new Date();
-      await application.save();
-
-      // Update tuition status
-      await Tuition.findByIdAndUpdate(application.tuition._id, {
-        status: 'ongoing',
-        approvedTutor: application.tutor._id
-      });
-
-      // ✅ Send notification using helper
-      await sendNotification(
-        application.tutor._id,
-        'applicationAccepted',
-        application.tuition.title,
-        application.tuition._id,
-        application.student
-      );
-
-      console.log('✅ Application accepted');
-
-      return res.json({
-        success: true,
-        message: 'Application accepted',
-        application
-      });
+    // Update application
+    application.status = status;
+    application.respondedAt = new Date();
+    
+    if (status === 'rejected' && rejectionReason) {
+      application.rejectionReason = rejectionReason;
     }
 
-    res.status(400).json({
-      success: false,
-      message: 'Invalid status'
+    await application.save();
+
+    // Populate for response
+    await application.populate([
+      { path: 'tutor', select: 'name email phone' },
+      { path: 'tuition', select: 'title subject' }
+    ]);
+
+    console.log(`✅ Application ${status} successfully`);
+
+    res.status(200).json({
+      success: true,
+      message: `Application ${status} successfully`,
+      application
     });
+
   } catch (error) {
-    console.error('❌ Update application error:', error);
+    console.error('❌ Update application status error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update application'
+      message: 'Failed to update application status',
+      error: error.message
     });
   }
 };
 
-// Withdraw application (Tutor)
+// ✅ Withdraw Application (Tutor)
 exports.withdrawApplication = async (req, res) => {
   try {
     const { applicationId } = req.params;
+    const tutorId = req.user.userId;
 
     console.log('🔙 Withdrawing application:', applicationId);
 
-    const application = await Application.findById(applicationId)
-      .populate('tuition', 'subject title')
-      .populate('tutor', 'name');
+    const application = await Application.findById(applicationId);
 
     if (!application) {
       return res.status(404).json({
@@ -266,46 +298,39 @@ exports.withdrawApplication = async (req, res) => {
       });
     }
 
-    // Verify tutor ownership
-    if (application.tutor._id.toString() !== req.user.userId) {
+    // Check authorization
+    if (application.tutor.toString() !== tutorId) {
       return res.status(403).json({
         success: false,
         message: 'You are not authorized to withdraw this application'
       });
     }
 
-    // Can't withdraw accepted applications
-    if (application.status === 'accepted') {
+    // Can only withdraw pending applications
+    if (application.status !== 'pending') {
       return res.status(400).json({
         success: false,
-        message: 'Cannot withdraw accepted application'
+        message: `Cannot withdraw ${application.status} application`
       });
     }
 
     application.status = 'withdrawn';
     await application.save();
 
-    // ✅ Send notification using helper
-    await sendNotification(
-      application.student,
-      'applicationWithdrawn',
-      application.tutor.name,
-      application.tuition.title,
-      application.tuition._id,
-      application._id
-    );
+    console.log('✅ Application withdrawn successfully');
 
-    console.log('✅ Application withdrawn');
-
-    res.json({
+    res.status(200).json({
       success: true,
-      message: 'Application withdrawn successfully'
+      message: 'Application withdrawn successfully',
+      application
     });
+
   } catch (error) {
     console.error('❌ Withdraw application error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to withdraw application'
+      message: 'Failed to withdraw application',
+      error: error.message
     });
   }
 };
