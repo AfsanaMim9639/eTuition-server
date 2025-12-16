@@ -1,5 +1,3 @@
-// controllers/applicationController.js
-
 const Application = require('../models/Application');
 const Tuition = require('../models/Tuition');
 const User = require('../models/User');
@@ -143,6 +141,7 @@ exports.getMyApplications = async (req, res) => {
 
     res.status(200).json({
       success: true,
+      count: applications.length,
       applications
     });
 
@@ -156,45 +155,67 @@ exports.getMyApplications = async (req, res) => {
   }
 };
 
-// ✅ Get Applications for Tuition (Student)
+// ✅ Get Applications for Tuition (Student) - IMPROVED
 exports.getApplicationsForTuition = async (req, res) => {
   try {
     const { tuitionId } = req.params;
     const studentId = req.user.userId;
 
     console.log('📋 Fetching applications for tuition:', tuitionId);
+    console.log('🔐 Requested by student:', studentId);
 
-    // Check if tuition belongs to student
+    // Check if tuition exists
     const tuition = await Tuition.findById(tuitionId);
     
     if (!tuition) {
+      console.log('❌ Tuition not found');
       return res.status(404).json({
         success: false,
         message: 'Tuition not found'
       });
     }
 
+    console.log('📌 Tuition belongs to:', tuition.studentId.toString());
+    console.log('📌 Current user:', studentId);
+
+    // Check authorization
     if (tuition.studentId.toString() !== studentId && req.user.role !== 'admin') {
+      console.log('❌ Unauthorized access attempt');
       return res.status(403).json({
         success: false,
         message: 'You are not authorized to view these applications'
       });
     }
 
+    // Fetch applications with full tutor details
     const applications = await Application.find({ tuition: tuitionId })
-      .populate('tutor', 'name email phone profileImage rating experience subjects education bio address')
+      .populate({
+        path: 'tutor',
+        select: 'name email phone profileImage rating experience subjects education bio address'
+      })
+      .populate({
+        path: 'tuition',
+        select: 'title subject grade location salary'
+      })
       .sort({ createdAt: -1 })
       .lean();
 
     console.log(`✅ Found ${applications.length} applications`);
 
+    // Log first application for debugging
+    if (applications.length > 0) {
+      console.log('📄 Sample application:', JSON.stringify(applications[0], null, 2));
+    }
+
     res.status(200).json({
       success: true,
+      count: applications.length,
       applications
     });
 
   } catch (error) {
     console.error('❌ Get tuition applications error:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch applications',
