@@ -1,5 +1,54 @@
 const User = require('../models/User');
 
+// Get all students
+exports.getAllStudents = async (req, res) => {
+  try {
+    console.log('🔍 getAllStudents called with params:', req.query);
+
+    const { search, grade, institution, limit } = req.query;
+    
+    const query = { role: 'student' };
+    
+    if (search && search.trim()) {
+      query.name = { $regex: search.trim(), $options: 'i' };
+    }
+    
+    if (grade && grade.trim()) {
+      query.grade = { $regex: grade.trim(), $options: 'i' };
+    }
+    
+    if (institution && institution.trim()) {
+      query.institution = { $regex: institution.trim(), $options: 'i' };
+    }
+    
+    console.log('🔎 MongoDB Query:', JSON.stringify(query, null, 2));
+    
+    const limitNum = parseInt(limit) || 50;
+    
+    const students = await User.find(query)
+      .select('name email grade institution profileImage createdAt')
+      .sort({ createdAt: -1 })
+      .limit(limitNum)
+      .lean();
+    
+    console.log(`✅ Found ${students.length} students`);
+    
+    res.json({
+      status: 'success',
+      count: students.length,
+      data: students
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in getAllStudents:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch students',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 // Get all tutors with filters
 exports.getAllTutors = async (req, res) => {
   try {

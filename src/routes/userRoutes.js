@@ -11,6 +11,7 @@ router.get('/tutors/latest', userController.getLatestTutors);
 router.get('/tutors', userController.getAllTutors);
 
 // Protected routes
+router.get('/students', verifyToken, userController.getAllStudents);
 router.put('/profile', verifyToken, userController.updateUserProfile);
 
 // Dynamic route MUST be last
