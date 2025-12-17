@@ -241,18 +241,49 @@ exports.socialLogin = async (req, res) => {
         role: role || 'student',
         isSocialLogin: true,
         active: true,
-        status: 'pending' // ⭐ New social users also pending
+        status: 'pending'
       });
       console.log('✅ New social user created:', user._id, 'Status:', user.status);
     }
 
     const token = generateToken(user);
 
+    // ✅ Create clean user response object
+    const userResponse = {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      phone: user.phone,
+      profileImage: user.profileImage,
+      address: user.address,
+      location: user.location,
+      status: user.status,
+      active: user.active,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    };
+
+    // Add role-specific fields
+    if (user.role === 'student') {
+      userResponse.grade = user.grade;
+      userResponse.institution = user.institution;
+    } else if (user.role === 'tutor') {
+      userResponse.subjects = user.subjects;
+      userResponse.experience = user.experience;
+      userResponse.education = user.education;
+      userResponse.bio = user.bio;
+      userResponse.rating = user.rating;
+      userResponse.totalReviews = user.totalReviews;
+      userResponse.hourlyRate = user.hourlyRate;
+      userResponse.totalEarnings = user.totalEarnings;
+    }
+
     res.json({
       success: true,
       message: 'Login successful',
       token,
-      user,
+      user: userResponse,  // ✅ Clean object instead of mongoose document
       // ⭐ Include status info
       ...(user.status === 'pending' && {
         statusInfo: {
