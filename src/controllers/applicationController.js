@@ -355,3 +355,161 @@ exports.withdrawApplication = async (req, res) => {
     });
   }
 };
+
+// UPDATE APPLICATION (Tutor edits their application)
+// ================================
+exports.updateApplication = async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const { qualifications, experience, proposedRate, message } = req.body;
+    const tutorId = req.user.userId;
+
+    console.log('✏️ Updating application:', applicationId);
+
+    // ✅ Validate input
+    if (!qualifications || qualifications.trim().length < 20) {
+      return res.status(400).json({
+        success: false,
+        message: 'Qualifications must be at least 20 characters'
+      });
+    }
+
+    if (!experience || experience.trim().length < 20) {
+      return res.status(400).json({
+        success: false,
+        message: 'Experience must be at least 20 characters'
+      });
+    }
+
+    if (!proposedRate || proposedRate <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid proposed salary'
+      });
+    }
+
+    if (!message || message.trim().length < 50) {
+      return res.status(400).json({
+        success: false,
+        message: 'Message must be at least 50 characters'
+      });
+    }
+
+    // ✅ Find application
+    const application = await Application.findById(applicationId);
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: 'Application not found'
+      });
+    }
+
+    // ✅ Check authorization - Tutor can only edit their own application
+    if (application.tutor.toString() !== tutorId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only edit your own applications'
+      });
+    }
+
+    // ✅ Check if application is still pending (can't edit if accepted/rejected/withdrawn)
+    if (application.status !== 'pending') {
+      return res.status(409).json({
+        success: false,
+        message: `Cannot edit application that has been ${application.status}`
+      });
+    }
+
+    // ✅ Update application fields
+    application.qualifications = qualifications.trim();
+    application.experience = experience.trim();
+    application.expectedSalary = proposedRate;
+    
+    // Add message field if it doesn't exist in your schema
+    if (message) {
+      application.message = message.trim();
+    }
+
+    application.updatedAt = new Date();
+
+    await application.save();
+
+    // ✅ Populate for response
+    await application.populate([
+      { path: 'tutor', select: 'name email phone profileImage rating' },
+      { path: 'tuition', select: 'title subject grade location salary' },
+      { path: 'student', select: 'name email' }
+    ]);
+
+    console.log('✅ Application updated successfully');
+
+    res.status(200).json({
+      success: true,
+      message: 'Application updated successfully',
+      data: application
+    });
+
+  } catch (error) {
+    console.error('❌ Update application error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update application',
+      error: error.message
+    });
+  }
+};
+
+// ================================
+// DELETE APPLICATION (Tutor)
+// ================================
+exports.deleteApplication = async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const tutorId = req.user.userId;
+
+    console.log('🗑️ Deleting application:', applicationId);
+
+    const application = await Application.findById(applicationId);
+
+    if (!application) {
+      return res.status(404).json({
+        success: false,
+        message: 'Application not found'
+      });
+    }
+
+    // Check authorization
+    if (application.tutor.toString() !== tutorId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only delete your own applications'
+      });
+    }
+
+    // Can only delete pending or rejected applications
+    if (!['pending', 'rejected'].includes(application.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete ${application.status} application`
+      });
+    }
+
+    await Application.findByIdAndDelete(applicationId);
+
+    console.log('✅ Application deleted successfully');
+
+    res.status(200).json({
+      success: true,
+      message: 'Application deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Delete application error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete application',
+      error: error.message
+    });
+  }
+};

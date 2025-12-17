@@ -48,6 +48,12 @@ const applicationSchema = new mongoose.Schema({
     min: [0, 'Expected salary cannot be negative']
   },
   
+  message: {
+  type: String,
+  trim: true,
+  minlength: [50, 'Message must be at least 50 characters']
+  // required নেই = optional
+},
   // Status tracking
   status: {
     type: String,
