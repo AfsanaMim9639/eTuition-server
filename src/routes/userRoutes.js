@@ -3,12 +3,17 @@ const router = express.Router();
 const userController = require('../controllers/userController');
 const { verifyToken } = require('../middleware/authMiddleware');
 
-// Public routes
-router.get('/tutors', userController.getAllTutors);
+// ⭐ IMPORTANT: Specific routes MUST come BEFORE dynamic routes
+// Otherwise /:userId will catch /tutors and /tutors/latest
+
+// Public routes - Specific paths first
 router.get('/tutors/latest', userController.getLatestTutors);
-router.get('/:userId', userController.getUserProfile);
+router.get('/tutors', userController.getAllTutors);
 
 // Protected routes
 router.put('/profile', verifyToken, userController.updateUserProfile);
+
+// Dynamic route MUST be last
+router.get('/:userId', userController.getUserProfile);
 
 module.exports = router;
