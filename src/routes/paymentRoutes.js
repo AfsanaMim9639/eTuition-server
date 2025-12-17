@@ -14,7 +14,11 @@ router.post('/create-intent', verifyToken, isStudent, paymentController.createPa
 // POST /api/payments/confirm - Confirm payment after Stripe success
 router.post('/confirm', verifyToken, isStudent, paymentController.confirmPayment);
 
-// GET /api/payments/my/payments - Get student's payment history (matches frontend)
+// ✅ FIXED: Added both paths for compatibility
+// GET /api/payments/my-payments - Frontend expects this path
+router.get('/my-payments', verifyToken, isStudent, paymentController.getMyPayments);
+
+// GET /api/payments/my/payments - Legacy path (keeping for backward compatibility)
 router.get('/my/payments', verifyToken, isStudent, paymentController.getMyPayments);
 
 // Tutor routes - Revenue tracking

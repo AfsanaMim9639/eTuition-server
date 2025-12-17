@@ -19,7 +19,8 @@ const userSchema = new mongoose.Schema({
     required: function() {
       return !this.isSocialLogin;
     },
-    minlength: [6, 'Password must be at least 6 characters']
+    minlength: [6, 'Password must be at least 6 characters'],
+    select: false
   },
   role: {
     type: String,
@@ -92,26 +93,29 @@ const userSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  
+  // Active field - Boolean only
   active: {
     type: Boolean,
     default: true
   },
   
-  // ⭐ UPDATED: Status field with pending, approved, rejected
+  // ⭐ Status field - Default is 'pending' for new users
   status: {
     type: String,
     enum: ['pending', 'approved', 'rejected', 'suspended', 'blocked'],
-    default: 'pending' // ⭐ Default is now 'pending'
+    default: 'pending' // ⭐ New users need approval
   },
   
-  // ⭐ NEW: Approval details
+  // Approval details
   approvalDetails: {
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     },
     approvedAt: Date,
-    rejectionReason: String
+    rejectionReason: String,
+    rejectedAt: Date
   }
 }, {
   timestamps: true

@@ -15,6 +15,7 @@ const generateToken = (user) => {
 };
 
 // Register new user
+// Register
 exports.register = async (req, res) => {
   try {
     const { 
@@ -56,7 +57,7 @@ exports.register = async (req, res) => {
       phone,
       address,
       active: true,
-      status: 'active'
+      status: 'pending' // ⭐ All new users start as pending
     };
 
     // Add student-specific fields
@@ -82,7 +83,7 @@ exports.register = async (req, res) => {
         });
       }
 
-      // Handle education - can be string or array
+      // Handle education
       if (education) {
         if (typeof education === 'string') {
           userData.education = [{
@@ -108,14 +109,14 @@ exports.register = async (req, res) => {
 
     const user = await User.create(userData);
 
-    console.log('✅ User created successfully:', user._id);
+    console.log('✅ User created successfully:', user._id, 'Status:', user.status);
 
     // Generate token
     const token = generateToken(user);
 
     res.status(201).json({
       success: true,
-      message: 'User registered successfully',
+      message: 'Registration successful! Your account is pending approval.',
       token,
       user: {
         _id: user._id,
@@ -124,6 +125,7 @@ exports.register = async (req, res) => {
         role: user.role,
         phone: user.phone,
         profileImage: user.profileImage,
+        status: user.status, // ⭐ Include status in response
         // Include role-specific fields
         ...(user.role === 'student' && {
           grade: user.grade,
@@ -136,12 +138,16 @@ exports.register = async (req, res) => {
           rating: user.rating,
           hourlyRate: user.hourlyRate
         })
+      },
+      // ⭐ Add pending approval message
+      statusInfo: {
+        status: 'pending',
+        message: 'Your account is pending approval from admin. You can login but some features may be limited.'
       }
     });
   } catch (error) {
     console.error('❌ Register error:', error);
     
-    // Handle duplicate key error
     if (error.code === 11000) {
       return res.status(400).json({
         success: false,
@@ -149,7 +155,6 @@ exports.register = async (req, res) => {
       });
     }
     
-    // Handle validation errors
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(err => err.message);
       return res.status(400).json({
@@ -161,6 +166,106 @@ exports.register = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message || 'Registration failed'
+    });
+  }
+};
+
+// ⭐ Social Login - Also starts as pending
+exports.socialLogin = async (req, res) => {
+  try {
+    const { name, email, profileImage, role } = req.body;
+
+    console.log('📥 Social login request for:', email, 'with role:', role);
+
+    if (!email || !name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name and email are required'
+      });
+    }
+
+    if (!role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please select your role'
+      });
+    }
+
+    let user = await User.findOne({ email });
+
+    if (user) {
+      // Check role mismatch
+      if (user.role !== role) {
+        console.log(`❌ Social login role mismatch! DB: ${user.role}, Selected: ${role}`);
+        return res.status(403).json({
+          success: false,
+          message: `Role mismatch! You are registered as a ${user.role.toUpperCase()}, not a ${role.toUpperCase()}. Please select the correct role.`,
+          registeredRole: user.role,
+          selectedRole: role
+        });
+      }
+
+      // Check if it's a regular account
+      if (!user.isSocialLogin) {
+        return res.status(400).json({
+          success: false,
+          message: 'An account with this email already exists. Please login with email and password.'
+        });
+      }
+
+      // Admin bypass for status checks
+      if (user.role !== 'admin') {
+        if (user.status !== 'approved' && user.status !== 'pending') {
+          return res.status(403).json({
+            success: false,
+            message: `Your account has been ${user.status}. Please contact support.`
+          });
+        }
+
+        if (user.active === false) {
+          return res.status(403).json({
+            success: false,
+            message: 'Your account has been deactivated'
+          });
+        }
+      }
+
+      console.log('✅ Existing social user found with correct role:', email);
+    } else {
+      // ⭐ Create new user with pending status
+      console.log('📝 Creating new social login user:', email, 'as', role);
+      user = await User.create({
+        name,
+        email,
+        profileImage: profileImage || undefined,
+        role: role || 'student',
+        isSocialLogin: true,
+        active: true,
+        status: 'pending' // ⭐ New social users also pending
+      });
+      console.log('✅ New social user created:', user._id, 'Status:', user.status);
+    }
+
+    const token = generateToken(user);
+
+    res.json({
+      success: true,
+      message: 'Login successful',
+      token,
+      user,
+      // ⭐ Include status info
+      ...(user.status === 'pending' && {
+        statusInfo: {
+          status: 'pending',
+          message: 'Your account is pending approval. Some features may be limited.'
+        }
+      })
+    });
+  } catch (error) {
+    console.error('❌ Social login error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Social login failed'
     });
   }
 };
