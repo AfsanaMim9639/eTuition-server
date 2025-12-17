@@ -1,19 +1,10 @@
 const Tuition = require('../models/Tuition');
-const mongoose = require('mongoose');
 
 // Get latest APPROVED tuitions for home page
 exports.getLatestTuitions = async (req, res) => {
   try {
     console.log('📍 getLatestTuitions called');
-    
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
 
-    // 🆕 Only show APPROVED tuitions
     const tuitions = await Tuition.find({ 
       status: 'open',
       approvalStatus: 'approved' 
@@ -42,15 +33,7 @@ exports.getLatestTuitions = async (req, res) => {
 exports.getFilterOptions = async (req, res) => {
   try {
     console.log('📍 getFilterOptions called');
-    
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
 
-    // 🆕 Only show approved tuitions in filters
     const subjects = await Tuition.distinct('subject', { 
       status: 'open', 
       approvalStatus: 'approved' 
@@ -108,13 +91,6 @@ exports.getFilterOptions = async (req, res) => {
 exports.getAllTuitions = async (req, res) => {
   try {
     console.log('📍 getAllTuitions called', req.query);
-    
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
 
     const { 
       page = 1, 
@@ -131,7 +107,6 @@ exports.getAllTuitions = async (req, res) => {
       status = 'open'
     } = req.query;
 
-    // 🆕 Only show approved tuitions to public
     const query = { 
       status,
       approvalStatus: 'approved'
@@ -197,18 +172,11 @@ exports.getAllTuitions = async (req, res) => {
 exports.getTuitionById = async (req, res) => {
   try {
     console.log('📍 getTuitionById called:', req.params.id);
-    
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
 
     const tuition = await Tuition.findById(req.params.id)
       .populate('studentId', 'name email phone location')
       .populate('approvedTutor', 'name email phone subjects rating')
-      .populate('approvedBy', 'name email') // 🆕 Show who approved
+      .populate('approvedBy', 'name email')
       .lean();
 
     if (!tuition) {
@@ -235,24 +203,17 @@ exports.getTuitionById = async (req, res) => {
   }
 };
 
-// Create new tuition (status = pending by default)
+// Create new tuition
 exports.createTuition = async (req, res) => {
   try {
     console.log('📍 createTuition called');
-    
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
 
     const tuitionData = {
       ...req.body,
       studentId: req.user?.userId,
       postedAt: new Date(),
       status: 'open',
-      approvalStatus: 'pending', // 🆕 Set to pending
+      approvalStatus: 'pending',
       views: 0
     };
 
@@ -273,21 +234,14 @@ exports.createTuition = async (req, res) => {
   }
 };
 
-// Get user's own tuitions (shows all statuses for student)
+// Get user's own tuitions
 exports.getMyTuitions = async (req, res) => {
   try {
     console.log('📍 getMyTuitions called');
-    
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
 
     const tuitions = await Tuition.find({ studentId: req.user.userId })
       .populate('approvedTutor', 'name phone subjects')
-      .populate('approvedBy', 'name') // 🆕 Show who approved/rejected
+      .populate('approvedBy', 'name')
       .sort({ createdAt: -1 })
       .lean();
 
@@ -310,13 +264,6 @@ exports.getMyTuitions = async (req, res) => {
 exports.updateTuition = async (req, res) => {
   try {
     console.log('📍 updateTuition called:', req.params.id);
-    
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
 
     const tuition = await Tuition.findById(req.params.id);
 
@@ -334,7 +281,6 @@ exports.updateTuition = async (req, res) => {
       });
     }
 
-    // 🆕 If student edits, reset to pending
     const updateData = {
       ...req.body,
       approvalStatus: 'pending'
@@ -362,13 +308,6 @@ exports.updateTuition = async (req, res) => {
 exports.deleteTuition = async (req, res) => {
   try {
     console.log('📍 deleteTuition called:', req.params.id);
-    
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
 
     const tuition = await Tuition.findById(req.params.id);
 
@@ -402,21 +341,10 @@ exports.deleteTuition = async (req, res) => {
   }
 };
 
-// ========================================
-// 🆕 ADMIN-ONLY FUNCTIONS
-// ========================================
-
-// Get all pending tuitions (admin only)
+// ADMIN: Get pending tuitions
 exports.getPendingTuitions = async (req, res) => {
   try {
     console.log('📍 getPendingTuitions called (ADMIN)');
-    
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
 
     const tuitions = await Tuition.find({ approvalStatus: 'pending' })
       .populate('studentId', 'name email phone location')
@@ -438,17 +366,10 @@ exports.getPendingTuitions = async (req, res) => {
   }
 };
 
-// Get all tuitions (admin - all statuses)
+// ADMIN: Get all tuitions
 exports.getAllTuitionsAdmin = async (req, res) => {
   try {
     console.log('📍 getAllTuitionsAdmin called');
-    
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
 
     const { 
       page = 1, 
@@ -491,17 +412,10 @@ exports.getAllTuitionsAdmin = async (req, res) => {
   }
 };
 
-// Approve tuition (admin only)
+// ADMIN: Approve tuition
 exports.approveTuition = async (req, res) => {
   try {
     console.log('📍 approveTuition called:', req.params.id);
-    
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
 
     const tuition = await Tuition.findById(req.params.id);
 
@@ -515,7 +429,7 @@ exports.approveTuition = async (req, res) => {
     tuition.approvalStatus = 'approved';
     tuition.approvedBy = req.user.userId;
     tuition.approvedAt = new Date();
-    tuition.rejectionReason = undefined; // Clear rejection reason
+    tuition.rejectionReason = undefined;
     tuition.rejectedAt = undefined;
 
     await tuition.save();
@@ -535,17 +449,10 @@ exports.approveTuition = async (req, res) => {
   }
 };
 
-// Reject tuition (admin only)
+// ADMIN: Reject tuition
 exports.rejectTuition = async (req, res) => {
   try {
     console.log('📍 rejectTuition called:', req.params.id);
-    
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
 
     const { reason } = req.body;
 

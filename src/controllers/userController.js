@@ -1,17 +1,9 @@
 const User = require('../models/User');
-const mongoose = require('mongoose');  // ✅ Added
 
 // Get all tutors with filters
 exports.getAllTutors = async (req, res) => {
   try {
     console.log('🔍 getAllTutors called with params:', req.query);
-    
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
 
     const { search, subject, location, minRating, minExperience } = req.query;
     
@@ -78,13 +70,6 @@ exports.getLatestTutors = async (req, res) => {
   try {
     console.log('🔍 getLatestTutors called');
     
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
-    
     const tutors = await User.find({ role: 'tutor' })
       .select('-password')
       .sort({ createdAt: -1 })
@@ -114,13 +99,6 @@ exports.getUserProfile = async (req, res) => {
     const { userId } = req.params;
     console.log('🔍 getUserProfile called for:', userId);
     
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
-    
     const user = await User.findById(userId).select('-password').lean();
     
     if (!user) {
@@ -149,13 +127,6 @@ exports.updateUserProfile = async (req, res) => {
   try {
     const updates = req.body;
     console.log('🔍 updateUserProfile called by:', req.user.userId);
-    
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        status: 'error',
-        message: 'Database not connected'
-      });
-    }
     
     delete updates.password;
     delete updates.email;
